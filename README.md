@@ -284,38 +284,6 @@ The backend exposes these focused resources below `/api`:
 - `.tanstack/` contains generated framework artifacts and should not be committed.
 - `frontend/.env` and `backend/.env` are local-only configuration files.
 
-## GitHub Publication
-
-### Recommended repository name
-
-Use **`aether-commerce-os`** on GitHub. It is short, describes the product clearly, and matches the project identity without tying the repository to a particular implementation vendor.
-
-### First commit
-
-After creating an empty public or private repository named `aether-commerce-os`, run these commands from the project root:
-
-```bash
-git init
-git add .
-git commit -m "feat: add Aether commerce operating system"
-git branch -M main
-git remote add origin https://github.com/<your-account>/aether-commerce-os.git
-git push -u origin main
-```
-
-Before `git add .`, verify that environment files and generated folders remain ignored:
-
-```bash
-git status --short
-git check-ignore backend/.env frontend/.env .tanstack
-```
-
-The first commit message to use is:
-
-```text
-feat: add Aether commerce operating system
-```
-
 ## License
 
 No license has been selected for this repository yet. Add a license file before making the project public if you want to define reuse and distribution terms.
