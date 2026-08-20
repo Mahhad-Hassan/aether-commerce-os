@@ -22,6 +22,7 @@ import { OrdersManagementPage, OrderDetailsPage, AbandonedCheckoutsPage } from "
 import { InventoryManagementPage } from "@/components/dashboard/inventory-management";
 import { PurchaseOrdersPage } from "@/components/dashboard/purchase-orders-page";
 import { PurchaseInvoicesPage } from "@/components/dashboard/purchase-invoices-page";
+import { SalesInvoicesPage } from "@/components/dashboard/sale-invoices-page";
 import { GrowthDashboardPage, AttributionPage, CampaignsPage } from "@/components/dashboard/growth";
 import { OnlineStorePage } from "@/components/dashboard/online-store";
 import React from "react";
@@ -468,6 +469,7 @@ export function DashboardDispatch({ slug }: { slug: string }) {
   if (slug === "products/inventory" || slug === "inventory") return <PageBoundary label="Inventory"><InventoryManagementPage /></PageBoundary>;
   if (slug === "products/purchase-orders" || slug === "purchase-orders") return <PageBoundary label="Purchase Orders"><PurchaseOrdersPage /></PageBoundary>;
   if (slug === "products/purchase-invoices" || slug === "purchase-invoices") return <PageBoundary label="Purchase Invoices"><PurchaseInvoicesPage /></PageBoundary>;
+  if (slug === "products/sale-invoices" || slug === "sale-invoices") return <PageBoundary label="Sale Invoices"><SalesInvoicesPage /></PageBoundary>;
   if (slug === "products/gift-cards") return <PageBoundary label="Gift Cards"><GiftCardsPage /></PageBoundary>;
 
   if (slug === "categories")  return <PageBoundary label="Categories"><ConnectedCategories /></PageBoundary>;
@@ -578,8 +580,24 @@ export function Breadcrumb({ label, parent }: { label: string; parent?: { label:
 }
 
 export function PageHeader({
-  icon: Icon, title, subtitle, primaryAction, onPrimary, onExport,
-}: { icon: LucideIcon; title: string; subtitle: string; primaryAction: string; onPrimary?: () => void; onExport?: () => void }) {
+  icon: Icon,
+  title,
+  subtitle,
+  primaryAction,
+  onPrimary,
+  secondaryAction,
+  onSecondary,
+  onExport,
+}: {
+  icon: LucideIcon;
+  title: string;
+  subtitle: string;
+  primaryAction: string;
+  onPrimary?: () => void;
+  secondaryAction?: string;
+  onSecondary?: () => void;
+  onExport?: () => void;
+}) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
@@ -597,6 +615,12 @@ export function PageHeader({
         </div>
       </div>
       <div className="flex items-center gap-2">
+        {secondaryAction && onSecondary && (
+          <button onClick={onSecondary}
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl glass hover:bg-white/10 text-xs font-medium transition">
+            {secondaryAction}
+          </button>
+        )}
         <button onClick={onExport}
           className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl glass hover:bg-white/10 text-xs font-medium transition">
           <Download className="h-3.5 w-3.5" /> Export

@@ -34,11 +34,13 @@ import { Route as DashboardAccessibilityRouteImport } from './routes/dashboard.a
 import { Route as DashboardSplatRouteImport } from './routes/dashboard.$'
 import { Route as TemplatesIdIndexRouteImport } from './routes/templates.$id.index'
 import { Route as StoreStoreIdIndexRouteImport } from './routes/store.$storeId.index'
+import { Route as DashboardSaleInvoicesIndexRouteImport } from './routes/dashboard.sale-invoices.index'
 import { Route as DashboardPurchaseOrdersIndexRouteImport } from './routes/dashboard.purchase-orders.index'
 import { Route as DashboardPurchaseInvoicesIndexRouteImport } from './routes/dashboard.purchase-invoices.index'
 import { Route as TemplatesIdApplyRouteImport } from './routes/templates.$id.apply'
 import { Route as StoreStoreIdSettingsRouteImport } from './routes/store_.$storeId.settings'
 import { Route as StoreStoreIdSplatRouteImport } from './routes/store.$storeId.$'
+import { Route as DashboardSaleInvoicesIdRouteImport } from './routes/dashboard.sale-invoices.$id'
 import { Route as DashboardPurchaseOrdersIdRouteImport } from './routes/dashboard.purchase-orders.$id'
 import { Route as DashboardPurchaseInvoicesIdRouteImport } from './routes/dashboard.purchase-invoices.$id'
 import { Route as DashboardNewKindRouteImport } from './routes/dashboard.new.$kind'
@@ -170,6 +172,12 @@ const StoreStoreIdIndexRoute = StoreStoreIdIndexRouteImport.update({
   path: '/',
   getParentRoute: () => StoreStoreIdRoute,
 } as any)
+const DashboardSaleInvoicesIndexRoute =
+  DashboardSaleInvoicesIndexRouteImport.update({
+    id: '/sale-invoices/',
+    path: '/sale-invoices/',
+    getParentRoute: () => DashboardRoute,
+  } as any)
 const DashboardPurchaseOrdersIndexRoute =
   DashboardPurchaseOrdersIndexRouteImport.update({
     id: '/purchase-orders/',
@@ -196,6 +204,11 @@ const StoreStoreIdSplatRoute = StoreStoreIdSplatRouteImport.update({
   id: '/$',
   path: '/$',
   getParentRoute: () => StoreStoreIdRoute,
+} as any)
+const DashboardSaleInvoicesIdRoute = DashboardSaleInvoicesIdRouteImport.update({
+  id: '/sale-invoices/$id',
+  path: '/sale-invoices/$id',
+  getParentRoute: () => DashboardRoute,
 } as any)
 const DashboardPurchaseOrdersIdRoute =
   DashboardPurchaseOrdersIdRouteImport.update({
@@ -254,11 +267,13 @@ export interface FileRoutesByFullPath {
   '/dashboard/new/$kind': typeof DashboardNewKindRoute
   '/dashboard/purchase-invoices/$id': typeof DashboardPurchaseInvoicesIdRoute
   '/dashboard/purchase-orders/$id': typeof DashboardPurchaseOrdersIdRoute
+  '/dashboard/sale-invoices/$id': typeof DashboardSaleInvoicesIdRoute
   '/store/$storeId/$': typeof StoreStoreIdSplatRoute
   '/store/$storeId/settings': typeof StoreStoreIdSettingsRouteWithChildren
   '/templates/$id/apply': typeof TemplatesIdApplyRoute
   '/dashboard/purchase-invoices/': typeof DashboardPurchaseInvoicesIndexRoute
   '/dashboard/purchase-orders/': typeof DashboardPurchaseOrdersIndexRoute
+  '/dashboard/sale-invoices/': typeof DashboardSaleInvoicesIndexRoute
   '/store/$storeId/': typeof StoreStoreIdIndexRoute
   '/templates/$id/': typeof TemplatesIdIndexRoute
   '/store/$storeId/settings/$': typeof StoreStoreIdSettingsSplatRoute
@@ -289,10 +304,12 @@ export interface FileRoutesByTo {
   '/dashboard/new/$kind': typeof DashboardNewKindRoute
   '/dashboard/purchase-invoices/$id': typeof DashboardPurchaseInvoicesIdRoute
   '/dashboard/purchase-orders/$id': typeof DashboardPurchaseOrdersIdRoute
+  '/dashboard/sale-invoices/$id': typeof DashboardSaleInvoicesIdRoute
   '/store/$storeId/$': typeof StoreStoreIdSplatRoute
   '/templates/$id/apply': typeof TemplatesIdApplyRoute
   '/dashboard/purchase-invoices': typeof DashboardPurchaseInvoicesIndexRoute
   '/dashboard/purchase-orders': typeof DashboardPurchaseOrdersIndexRoute
+  '/dashboard/sale-invoices': typeof DashboardSaleInvoicesIndexRoute
   '/store/$storeId': typeof StoreStoreIdIndexRoute
   '/templates/$id': typeof TemplatesIdIndexRoute
   '/store/$storeId/settings/$': typeof StoreStoreIdSettingsSplatRoute
@@ -326,11 +343,13 @@ export interface FileRoutesById {
   '/dashboard/new/$kind': typeof DashboardNewKindRoute
   '/dashboard/purchase-invoices/$id': typeof DashboardPurchaseInvoicesIdRoute
   '/dashboard/purchase-orders/$id': typeof DashboardPurchaseOrdersIdRoute
+  '/dashboard/sale-invoices/$id': typeof DashboardSaleInvoicesIdRoute
   '/store/$storeId/$': typeof StoreStoreIdSplatRoute
   '/store_/$storeId/settings': typeof StoreStoreIdSettingsRouteWithChildren
   '/templates/$id/apply': typeof TemplatesIdApplyRoute
   '/dashboard/purchase-invoices/': typeof DashboardPurchaseInvoicesIndexRoute
   '/dashboard/purchase-orders/': typeof DashboardPurchaseOrdersIndexRoute
+  '/dashboard/sale-invoices/': typeof DashboardSaleInvoicesIndexRoute
   '/store/$storeId/': typeof StoreStoreIdIndexRoute
   '/templates/$id/': typeof TemplatesIdIndexRoute
   '/store_/$storeId/settings/$': typeof StoreStoreIdSettingsSplatRoute
@@ -365,11 +384,13 @@ export interface FileRouteTypes {
     | '/dashboard/new/$kind'
     | '/dashboard/purchase-invoices/$id'
     | '/dashboard/purchase-orders/$id'
+    | '/dashboard/sale-invoices/$id'
     | '/store/$storeId/$'
     | '/store/$storeId/settings'
     | '/templates/$id/apply'
     | '/dashboard/purchase-invoices/'
     | '/dashboard/purchase-orders/'
+    | '/dashboard/sale-invoices/'
     | '/store/$storeId/'
     | '/templates/$id/'
     | '/store/$storeId/settings/$'
@@ -400,10 +421,12 @@ export interface FileRouteTypes {
     | '/dashboard/new/$kind'
     | '/dashboard/purchase-invoices/$id'
     | '/dashboard/purchase-orders/$id'
+    | '/dashboard/sale-invoices/$id'
     | '/store/$storeId/$'
     | '/templates/$id/apply'
     | '/dashboard/purchase-invoices'
     | '/dashboard/purchase-orders'
+    | '/dashboard/sale-invoices'
     | '/store/$storeId'
     | '/templates/$id'
     | '/store/$storeId/settings/$'
@@ -436,11 +459,13 @@ export interface FileRouteTypes {
     | '/dashboard/new/$kind'
     | '/dashboard/purchase-invoices/$id'
     | '/dashboard/purchase-orders/$id'
+    | '/dashboard/sale-invoices/$id'
     | '/store/$storeId/$'
     | '/store_/$storeId/settings'
     | '/templates/$id/apply'
     | '/dashboard/purchase-invoices/'
     | '/dashboard/purchase-orders/'
+    | '/dashboard/sale-invoices/'
     | '/store/$storeId/'
     | '/templates/$id/'
     | '/store_/$storeId/settings/$'
@@ -639,6 +664,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StoreStoreIdIndexRouteImport
       parentRoute: typeof StoreStoreIdRoute
     }
+    '/dashboard/sale-invoices/': {
+      id: '/dashboard/sale-invoices/'
+      path: '/sale-invoices'
+      fullPath: '/dashboard/sale-invoices/'
+      preLoaderRoute: typeof DashboardSaleInvoicesIndexRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/dashboard/purchase-orders/': {
       id: '/dashboard/purchase-orders/'
       path: '/purchase-orders'
@@ -673,6 +705,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/store/$storeId/$'
       preLoaderRoute: typeof StoreStoreIdSplatRouteImport
       parentRoute: typeof StoreStoreIdRoute
+    }
+    '/dashboard/sale-invoices/$id': {
+      id: '/dashboard/sale-invoices/$id'
+      path: '/sale-invoices/$id'
+      fullPath: '/dashboard/sale-invoices/$id'
+      preLoaderRoute: typeof DashboardSaleInvoicesIdRouteImport
+      parentRoute: typeof DashboardRoute
     }
     '/dashboard/purchase-orders/$id': {
       id: '/dashboard/purchase-orders/$id'
@@ -730,8 +769,10 @@ interface DashboardRouteChildren {
   DashboardNewKindRoute: typeof DashboardNewKindRoute
   DashboardPurchaseInvoicesIdRoute: typeof DashboardPurchaseInvoicesIdRoute
   DashboardPurchaseOrdersIdRoute: typeof DashboardPurchaseOrdersIdRoute
+  DashboardSaleInvoicesIdRoute: typeof DashboardSaleInvoicesIdRoute
   DashboardPurchaseInvoicesIndexRoute: typeof DashboardPurchaseInvoicesIndexRoute
   DashboardPurchaseOrdersIndexRoute: typeof DashboardPurchaseOrdersIndexRoute
+  DashboardSaleInvoicesIndexRoute: typeof DashboardSaleInvoicesIndexRoute
 }
 
 const DashboardRouteChildren: DashboardRouteChildren = {
@@ -752,8 +793,10 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardNewKindRoute: DashboardNewKindRoute,
   DashboardPurchaseInvoicesIdRoute: DashboardPurchaseInvoicesIdRoute,
   DashboardPurchaseOrdersIdRoute: DashboardPurchaseOrdersIdRoute,
+  DashboardSaleInvoicesIdRoute: DashboardSaleInvoicesIdRoute,
   DashboardPurchaseInvoicesIndexRoute: DashboardPurchaseInvoicesIndexRoute,
   DashboardPurchaseOrdersIndexRoute: DashboardPurchaseOrdersIndexRoute,
+  DashboardSaleInvoicesIndexRoute: DashboardSaleInvoicesIndexRoute,
 }
 
 const DashboardRouteWithChildren = DashboardRoute._addFileChildren(

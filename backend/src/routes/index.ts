@@ -5,6 +5,7 @@ import inventoryRoutes from "./inventory.routes.js";
 import giftCardRoutes from "./gift-card.routes.js";
 import storesRoutes from "./stores.routes.js";
 import purchaseInvoiceRoutes from "./purchase-invoice.routes.js";
+import saleInvoiceRoutes from "./sale-invoice.routes.js";
 import { handleGenericProxy } from "../controllers/proxy.controller.js";
 
 const apiRouter = Router();
@@ -16,6 +17,7 @@ apiRouter.use("/", inventoryRoutes);
 apiRouter.use("/", giftCardRoutes);
 apiRouter.use("/", storesRoutes);
 apiRouter.use("/", purchaseInvoiceRoutes);
+apiRouter.use("/", saleInvoiceRoutes);
 
 // Pass-through proxy routes to ERPNext REST API for resources & methods
 apiRouter.all("/resource/*", handleGenericProxy);
