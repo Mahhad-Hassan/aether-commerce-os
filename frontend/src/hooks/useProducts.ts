@@ -34,13 +34,13 @@ export function useProducts(params: GetProductsParams = {}) {
     queryFn: async () => {
       const response = await getProducts(params);
 
-      const items = response.data ?? [];
+      const items = response ?? [];
 
       const products = mapItemsToProducts(items);
 
       return {
         data: products,
-        total: response.total_count ?? products.length,
+        total: products.length,
         page:
           Math.floor(
             (params.limit_start ?? 0) /

@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { FloatingLayer } from "@/components/ui/floating-menu";
 import { findItem } from "@/components/dashboard/nav-config";
 import { useOrders } from "@/hooks/useOrders";
+import { deliverSalesOrder, updateSalesOrderStatus } from "@/api/orders";
 import {
   useStoreData,
   type Order,
@@ -33,7 +34,7 @@ import {
   type Stat, type Column, type Row,
 } from "@/routes/dashboard.$";
 
-const money = (n: number) => `$${(n ?? 0).toFixed(2)}`;
+const money = (n: number) => `PKR ${(n ?? 0).toLocaleString("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const dt = (t?: number) => t ? new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—";
 const dtLong = (t: number) => new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -454,9 +455,15 @@ function DateInput({ label, value, onChange }: { label: string; value: string; o
  * ORDER DETAILS PAGE
  * ============================================================ */
 export function OrderDetailsPage({ id }: { id: string }) {
-  const orders = useStoreData((s) => s.orders);
+  const localOrders = useStoreData((s) => s.orders);
+  const { data: remoteOrders = [] } = useOrders();
   const navigate = useNavigate();
-  const order = orders.find((o) => o.id === id);
+  const localOrder = localOrders.find((o) => o.id === id);
+  const remoteOrder = remoteOrders.find((o) => o.id === id);
+  const [remoteStatus, setRemoteStatus] = useState<OrderStatus | undefined>();
+  const order = remoteStatus && remoteOrder
+    ? { ...remoteOrder, status: remoteStatus }
+    : localOrder ?? remoteOrder;
   const {
     setOrderStatus, cancelOrder, refundOrder, duplicateOrder, removeOrder,
     setOrderTracking, addOrderNote,
@@ -478,10 +485,26 @@ export function OrderDetailsPage({ id }: { id: string }) {
     );
   }
 
-  const advanceTo = (s: OrderStatus, msg?: string) => {
-    setOrderStatus(order.id, s, msg);
-    pushToast("success", `${order.number} → ${s}`);
-    // simulate customer email hooks
+  const advanceTo = async (s: OrderStatus, msg?: string) => {
+    if (remoteOrder && !localOrder) {
+      try {
+        if (s === "Shipped" || s === "Delivered") {
+          await deliverSalesOrder(remoteOrder.id);
+        } else {
+          const erpStatus = s === "Processing" ? "To Deliver" : s;
+          await updateSalesOrderStatus(remoteOrder.id, erpStatus);
+        }
+        setRemoteStatus(s);
+        pushToast("success", `${order.number} → ${s}`);
+      } catch (error) {
+        console.error("Failed to update Sales Order status", error);
+        pushToast("error", "Could not update order status in ERPNext");
+        return;
+      }
+    } else {
+      setOrderStatus(order.id, s, msg);
+      pushToast("success", `${order.number} → ${s}`);
+    }
     if (s === "Shipped") notifyEmail("Order shipped", order.customerEmail);
     if (s === "Delivered") notifyEmail("Order delivered", order.customerEmail);
   };
@@ -594,7 +617,7 @@ export function OrderDetailsPage({ id }: { id: string }) {
                     <div className="text-sm font-medium truncate">{i.name}</div>
                     <div className="text-xs text-muted-foreground">
                       {i.variant && <>{i.variant} · </>}
-                      {i.sku && <>SKU {i.sku} · </>}
+                      {i.sku && <>Item code {i.sku} · </>}
                       Qty {i.qty} × {money(i.price)}
                     </div>
                   </div>
@@ -677,11 +700,19 @@ export function OrderDetailsPage({ id }: { id: string }) {
             <div className="text-sm font-medium">{order.customerName || "Guest"}</div>
             <div className="text-xs text-muted-foreground">{order.customerEmail}</div>
             {order.customerPhone && <div className="text-xs text-muted-foreground">{order.customerPhone}</div>}
+            {order.company && <div className="text-xs text-muted-foreground mt-1">Company: {order.company}</div>}
             {order.customerId && (
               <Link to="/dashboard/$" params={{ _splat: "customers" }} className="mt-2 inline-flex text-xs text-primary hover:underline">
                 View customer <ChevronRight className="h-3 w-3" />
               </Link>
             )}
+          </Card>
+          <Card title="Order information" icon={Package}>
+            <Row2 label="Order" value={order.number} />
+            <Row2 label="Invoice" value={order.invoiceNumber} />
+            <Row2 label="Items" value={order.itemsCount} />
+            <Row2 label="Company" value={order.company ?? "—"} />
+            <Row2 label="Date" value={dt(order.createdAt)} />
           </Card>
           <AddressCard title="Shipping address" icon={MapPin} address={order.shipping} />
           <AddressCard title="Billing address" icon={CreditCard}
@@ -807,23 +838,23 @@ function invoiceHTML(orders: Order[], storeName: string) {
         </div>
       </div>
       <table>
-        <thead><tr><th>Item</th><th>SKU</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Total</th></tr></thead>
+        <thead><tr><th>Item</th><th>Item code</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Total</th></tr></thead>
         <tbody>
           ${o.items.map((i) => `<tr>
             <td>${escapeHTML(i.name)}${i.variant ? ` <span class="muted">(${escapeHTML(i.variant)})</span>` : ""}</td>
             <td>${escapeHTML(i.sku ?? "")}</td>
             <td class="r">${i.qty}</td>
-            <td class="r">$${i.price.toFixed(2)}</td>
-            <td class="r">$${(i.price * i.qty).toFixed(2)}</td>
+            <td class="r">${money(i.price)}</td>
+            <td class="r">${money(i.price * i.qty)}</td>
           </tr>`).join("")}
         </tbody>
       </table>
       <div class="totals">
-        <div><span>Subtotal</span><span>$${o.subtotal.toFixed(2)}</span></div>
-        ${o.discount > 0 ? `<div><span>Discount ${o.couponCode ? `(${escapeHTML(o.couponCode)})` : ""}</span><span>- $${o.discount.toFixed(2)}</span></div>` : ""}
-        ${o.shippingCost > 0 ? `<div><span>Shipping</span><span>$${o.shippingCost.toFixed(2)}</span></div>` : ""}
-        ${o.tax > 0 ? `<div><span>Tax</span><span>$${o.tax.toFixed(2)}</span></div>` : ""}
-        <div class="grand"><span>Total</span><span>$${o.total.toFixed(2)}</span></div>
+        <div><span>Subtotal</span><span>${money(o.subtotal)}</span></div>
+        ${o.discount > 0 ? `<div><span>Discount ${o.couponCode ? `(${escapeHTML(o.couponCode)})` : ""}</span><span>- ${money(o.discount)}</span></div>` : ""}
+        ${o.shippingCost > 0 ? `<div><span>Shipping</span><span>${money(o.shippingCost)}</span></div>` : ""}
+        ${o.tax > 0 ? `<div><span>Tax</span><span>${money(o.tax)}</span></div>` : ""}
+        <div class="grand"><span>Total</span><span>${money(o.total)}</span></div>
       </div>
       ${o.notes ? `<div class="notes"><div class="h">Notes</div><div>${escapeHTML(o.notes)}</div></div>` : ""}
     </section>

@@ -9,6 +9,7 @@ import type { Order, OrderItem, Address, OrderShippingMethod, OrderStatus, Payme
 export interface FrappeSalesOrder {
   name: string;
   customer: string;
+  company?: string;
   customer_name?: string;
   status: string;
   grand_total: number;
@@ -163,8 +164,9 @@ function transformItems(frappeItems: FrappeSalesOrderItem[] = []): OrderItem[] {
 /**
  * Transform Frappe address to frontend Address
  */
-function transformAddress(addr?: FrappeAddress): Address | undefined {
+function transformAddress(addr?: FrappeAddress | string): Address | undefined {
   if (!addr) return undefined;
+  if (typeof addr === "string") return { line1: addr };
   return {
     name: addr.name,
     line1: addr.address_line1,
@@ -233,9 +235,10 @@ export function adaptFrappeOrder(
     invoiceNumber: generateInvoiceNumber(frappeOrder.name),
     transactionId: undefined,
     customerId: frappeOrder.customer,
+    company: frappeOrder.company,
     customerName: getCustomerName(frappeOrder, customer),
     customerEmail: customer?.email_id ?? frappeOrder.contact_email ?? "customer@example.com",
-    customerPhone: customer?.mobile_no ?? customer?.phone,
+    customerPhone: customer?.mobile_no ?? customer?.phone ?? frappeOrder.contact_mobile,
     items,
     itemsCount: items.reduce((sum, i) => sum + i.qty, 0),
     subtotal,
@@ -244,8 +247,8 @@ export function adaptFrappeOrder(
     tax,
     total,
     couponCode: undefined,
-    shipping: transformAddress(shippingAddr),
-    billing: transformAddress(billingAddr),
+    shipping: transformAddress(shippingAddr ?? frappeOrder.shipping_address),
+    billing: transformAddress(billingAddr ?? frappeOrder.billing_address),
     billingSameAsShipping: true,
     paymentMethod: "Card",
     shippingMethod: undefined,

@@ -62,3 +62,15 @@ export async function getOrders() {
   console.log("FULL SALES ORDER DETAILS:", detailedOrders);
   return detailedOrders;
 }
+
+export async function updateSalesOrderStatus(orderName: string, status: string) {
+  const response = await api.put(`/resource/Sales Order/${encodeURIComponent(orderName)}`, {
+    status,
+  });
+  return response.data?.data ?? response.data;
+}
+
+export async function deliverSalesOrder(orderName: string) {
+  const response = await api.post(`/orders/${encodeURIComponent(orderName)}/deliver`);
+  return response.data;
+}

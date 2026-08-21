@@ -33,3 +33,25 @@ export async function getProductBin(req: Request, res: Response, next: NextFunct
     next(error);
   }
 }
+
+export async function getAllBins(req: Request, res: Response, next: NextFunction) {
+  try {
+    const limit = parseInt(req.query.limit as string) || 1000;
+    const result = await erpnextService.getResource("Bin", {
+      fields: [
+        "name",
+        "item_code",
+        "warehouse",
+        "actual_qty",
+        "reserved_qty",
+        "ordered_qty",
+        "projected_qty",
+      ],
+      limit_page_length: Math.min(limit, 5000),
+    });
+
+    res.json(result.data);
+  } catch (error) {
+    next(error);
+  }
+}

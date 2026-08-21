@@ -90,12 +90,13 @@ export async function getProducts(params: GetProductsParams = {}) {
     "modified",
   ];
 
-  const response = await api.get<FrappeItemListResponse>("/resource/Item", {
+  const response = await api.get<FrappeItemListResponse>("/products", {
     params: {
-      fields: JSON.stringify(params.fields || defaultFields),
-      filters: JSON.stringify(params.filters || []),
-      limit_page_length: params.limit_page_length ?? 20,
-      limit_start: params.limit_start ?? 0,
+      limit: params.limit_page_length ?? 20,
+      page: Math.floor((params.limit_start ?? 0) / (params.limit_page_length ?? 20)) + 1,
+      search: params.search,
+      item_group: params.filters?.item_group,
+      disabled: params.filters?.disabled,
       order_by: params.order_by ?? "creation desc",
     },
   });
@@ -126,25 +127,14 @@ export async function getProductsCount(filters?: any) {
 }
 
 export async function getItemGroups() {
-  const response = await api.get<{
-    map(mapFrappeItemGroupToCollection: (frappeGroup: FrappeItemGroup) => { id: string; name: string; handle: string; description: string; imageUrl: undefined; bannerUrl: undefined; kind: "manual"; match: "all"; productIds: never[]; rules: never[]; status: "Active"; sortOrder: number; seoTitle: string; seoDescription: string; keywords: string; createdAt: number; updatedAt: number; }): any; data: FrappeItemGroup[] 
-}>(
-    "/resource/Item Group",
+  const response = await api.get<FrappeItemGroup[]>(
+    "/products/item-groups",
     {
-      params: {
-        fields: JSON.stringify([
-          "name",
-          "item_group_name",
-          "is_group",
-          "parent_item_group",
-        ]),
-        limit_page_length: 1000,
-        order_by: "lft asc",
-      },
+      params: { limit_page_length: 1000 },
     }
   );
 
-  return response.data.data;
+  return response.data;
 }
 
 export async function getProductBin(
@@ -176,20 +166,13 @@ export async function getProductBin(
 }
 
 export async function getAllProductBins(): Promise<FrappeBin[]> {
-  const { data } = await api.get<{ data: FrappeBin[] }>("/resource/Bin", {
+  const response = await api.get<FrappeBin[]>("/inventory/bins", {
     params: {
-      fields: JSON.stringify([
-        "item_code",
-        "warehouse",
-        "actual_qty",
-        "reserved_qty",
-        "projected_qty",
-      ]),
-      limit_page_length: 5000,
+      limit: 5000,
     },
   });
 
-  return data.data;
+  return response.data;
 }
 
 export async function deleteProduct(itemCode: string): Promise<void> {

@@ -208,6 +208,7 @@ export type Order = {
   invoiceNumber: string;             // e.g. INV-2001
   transactionId?: string;            // e.g. TXN-XXXX
   customerId?: string;
+  company?: string;
   customerName: string;
   customerEmail: string;
   customerPhone?: string;
