@@ -26,6 +26,7 @@ import { SalesInvoicesPage } from "@/components/dashboard/sale-invoices-page";
 import { GrowthDashboardPage, AttributionPage, CampaignsPage } from "@/components/dashboard/growth";
 import { OnlineStorePage } from "@/components/dashboard/online-store";
 import React from "react";
+import { useAnalytics } from "@/hooks/useAnalytics";
 
 
 
@@ -496,7 +497,7 @@ export function DashboardDispatch({ slug }: { slug: string }) {
 
 
   // custom views
-  if (slug === "analytics") return <AnalyticsPage />;
+  if (slug === "analytics") return <AnalyticsLivePage />;
 
   const cfg = PAGES[slug];
   if (cfg && item) return <TablePage slug={slug} icon={item.icon} title={item.label} cfg={cfg} />;
@@ -1169,97 +1170,59 @@ function TablePage({
  * Analytics — custom KPI + chart view
  * ============================================================ */
 
-function AnalyticsPage() {
+function AnalyticsLivePage() {
   const item = findItem("analytics")!;
+  const [range, setRange] = useState<"7d" | "30d" | "90d" | "1y">("30d");
+  const [today] = useState(() => new Date());
+  const days = range === "7d" ? 7 : range === "90d" ? 90 : range === "1y" ? 365 : 30;
+  const toDate = new Date(today);
+  const fromDate = new Date(today); fromDate.setDate(fromDate.getDate() - days + 1);
+  const previousToDate = new Date(fromDate); previousToDate.setDate(previousToDate.getDate() - 1);
+  const previousFromDate = new Date(previousToDate); previousFromDate.setDate(previousFromDate.getDate() - days + 1);
+  const iso = (date: Date) => date.toISOString().slice(0, 10);
+  const rangeData = { from: iso(fromDate), to: iso(toDate), previousFrom: iso(previousFromDate), previousTo: iso(previousToDate) };
+  const { data, isLoading, isError, refetch } = useAnalytics(rangeData);
+  const analytics = data ?? { revenue: 0, revenueGrowth: 0, orders: 0, ordersGrowth: 0, customers: 0, invoiceCount: 0, averageOrderValue: 0, dailyRevenue: [], channels: [], topProducts: [] };
+  const money = (value: number) => `PKR ${value.toLocaleString("en-PK", { maximumFractionDigits: 0 })}`;
+  const growth = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+  const points = analytics.dailyRevenue.length ? analytics.dailyRevenue : [{ date: rangeData.from, value: 0 }];
+  const max = Math.max(...points.map((point) => point.value), 1);
+  const colors = ["bg-primary", "bg-emerald-400", "bg-fuchsia-400", "bg-cyan-400", "bg-amber-400"];
   const stats: Stat[] = [
-    { label: "Sessions (30d)",  value: "428,120", delta: "+12.4%", trend: "up" },
-    { label: "Conversion",      value: "3.42%",   delta: "+0.6%",  trend: "up" },
-    { label: "Revenue",         value: "$412K",   delta: "+18.2%", trend: "up" },
-    { label: "Avg session",     value: "2m 41s",  delta: "-3s",    trend: "down" },
+    { label: `Orders (${range})`, value: analytics.orders.toLocaleString(), delta: growth(analytics.ordersGrowth), trend: analytics.ordersGrowth >= 0 ? "up" : "down" },
+    { label: "Conversion", value: analytics.orders ? `${((analytics.invoiceCount / analytics.orders) * 100).toFixed(2)}%` : "0.00%", delta: "Submitted invoices / orders", trend: "up" },
+    { label: "Revenue", value: money(analytics.revenue), delta: growth(analytics.revenueGrowth), trend: analytics.revenueGrowth >= 0 ? "up" : "down" },
+    { label: "Avg order", value: money(analytics.averageOrderValue), delta: `${analytics.customers.toLocaleString()} new customers`, trend: "up" },
   ];
-
-  const spark = [12, 18, 14, 22, 28, 24, 32, 30, 36, 44, 40, 48, 52, 58, 55, 62, 70, 68, 76, 82, 78, 88, 92, 96];
-  const max = Math.max(...spark);
-
-  const channels = [
-    { name: "Direct",   pct: 38, color: "bg-primary" },
-    { name: "Organic",  pct: 26, color: "bg-emerald-400" },
-    { name: "Paid",     pct: 18, color: "bg-fuchsia-400" },
-    { name: "Referral", pct: 12, color: "bg-cyan-400" },
-    { name: "Social",   pct: 6,  color: "bg-amber-400" },
-  ];
+  const rows: Row[] = analytics.topProducts.map((product) => ({ page: product.name, views: product.qty.toLocaleString(), avg: "—", bounce: "—", revenue: money(product.revenue) }));
 
   return (
     <div className="space-y-6">
       <Breadcrumb label="Analytics" />
       <PageHeader icon={item.icon} title="Analytics" subtitle="Real-time performance across every channel." primaryAction="New report"
-        onPrimary={() => pushToast("info", "Report builder coming online…")}
-        onExport={() => pushToast("success", "Analytics snapshot exported")} />
+        onPrimary={() => { refetch(); pushToast("success", "Analytics refreshed"); }}
+        onExport={() => { refetch(); pushToast("success", "Analytics snapshot refreshed"); }} />
       <StatsRow stats={stats} />
-
+      {isLoading && <div className="text-sm text-muted-foreground">Loading analytics...</div>}
+      {isError && <div className="text-sm text-rose-300">Unable to load analytics from the Frappe backend.</div>}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <motion.div
-          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-          className="lg:col-span-2 rounded-2xl glass-strong border border-white/[0.08] p-5">
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="lg:col-span-2 rounded-2xl glass-strong border border-white/[0.08] p-5">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground/70">Revenue</div>
-              <div className="font-display text-2xl font-semibold tracking-tight mt-1">$412,890</div>
+              <div className="font-display text-2xl font-semibold tracking-tight mt-1">{money(analytics.revenue)}</div>
             </div>
             <div className="flex items-center gap-1 rounded-xl glass border border-white/[0.08] p-1 text-xs">
-              {["7d","30d","90d","1y"].map((r, i) => (
-                <button key={r} className={cn("h-7 px-2.5 rounded-lg", i === 1 ? "bg-primary-gradient text-primary-foreground shadow-glow" : "text-muted-foreground hover:text-foreground")}>{r}</button>
-              ))}
+              {["7d", "30d", "90d", "1y"].map((option) => <button key={option} onClick={() => setRange(option as typeof range)} className={cn("h-7 px-2.5 rounded-lg", range === option ? "bg-primary-gradient text-primary-foreground shadow-glow" : "text-muted-foreground hover:text-foreground")}>{option}</button>)}
             </div>
           </div>
           <div className="mt-5 h-48 flex items-end gap-1.5">
-            {spark.map((v, i) => (
-              <motion.div key={i}
-                initial={{ height: 0 }} animate={{ height: `${(v / max) * 100}%` }}
-                transition={{ delay: i * 0.02, duration: 0.4, ease: [0.22,1,0.36,1] }}
-                className="flex-1 rounded-t-md bg-primary-gradient/70 hover:bg-primary-gradient shadow-glow"
-              />
-            ))}
+            {points.map((point, index) => <motion.div key={point.date} initial={{ height: 0 }} animate={{ height: `${(point.value / max) * 100}%` }} transition={{ delay: index * 0.02, duration: 0.4, ease: [0.22, 1, 0.36, 1] }} className="flex-1 rounded-t-md bg-primary-gradient/70 hover:bg-primary-gradient shadow-glow" title={`${point.date}: ${money(point.value)}`} />)}
           </div>
         </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-          className="rounded-2xl glass-strong border border-white/[0.08] p-5">
-          <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground/70">Traffic by channel</div>
-          <div className="mt-4 space-y-3">
-            {channels.map((c) => (
-              <div key={c.name}>
-                <div className="flex items-center justify-between text-xs">
-                  <span>{c.name}</span>
-                  <span className="text-muted-foreground">{c.pct}%</span>
-                </div>
-                <div className="mt-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                  <motion.div initial={{ width: 0 }} animate={{ width: `${c.pct}%` }}
-                    transition={{ duration: 0.6, ease: [0.22,1,0.36,1] }}
-                    className={cn("h-full rounded-full", c.color)} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-2xl glass-strong border border-white/[0.08] p-5"><div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground/70">Traffic by channel</div><div className="mt-4 space-y-3">{analytics.channels.length ? analytics.channels.map((channel, index) => <div key={channel.name}><div className="flex items-center justify-between text-xs"><span>{channel.name}</span><span className="text-muted-foreground">{channel.pct}%</span></div><div className="mt-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${channel.pct}%` }} transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }} className={cn("h-full rounded-full", colors[index % colors.length])} /></div></div>) : <div className="text-xs text-muted-foreground">No sales in this period.</div>}</div></motion.div>
       </div>
-
-      <DataTable
-        columns={[
-          { key: "page",     label: "Top page" },
-          { key: "views",    label: "Views" },
-          { key: "avg",      label: "Avg time" },
-          { key: "bounce",   label: "Bounce" },
-          { key: "revenue",  label: "Revenue", className: "text-right" },
-        ]}
-        rows={[
-          { page: "/",                  views: "128,412", avg: "3m 12s", bounce: "38%", revenue: "$142K" },
-          { page: "/collections/new",   views: "82,120",  avg: "2m 44s", bounce: "42%", revenue: "$88K" },
-          { page: "/products/runner",   views: "62,880",  avg: "2m 18s", bounce: "36%", revenue: "$72K" },
-          { page: "/blog/autumn-2026",  views: "42,010",  avg: "4m 02s", bounce: "24%", revenue: "$12K" },
-        ]}
-      />
+      {rows.length ? <DataTable columns={[{ key: "page", label: "Top page" }, { key: "views", label: "Views" }, { key: "avg", label: "Avg time" }, { key: "bounce", label: "Bounce" }, { key: "revenue", label: "Revenue", className: "text-right" }]} rows={rows} /> : <EmptyState title="No analytics data" desc="No submitted sales invoices or invoice items were found in this date range." action="Refresh" onAction={() => refetch()} />}
     </div>
   );
 }

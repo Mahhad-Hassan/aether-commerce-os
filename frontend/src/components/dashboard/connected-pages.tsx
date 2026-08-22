@@ -14,6 +14,7 @@ import {
   type Stat, type Column, type Row,
 } from "@/routes/dashboard.$";
 import { useProducts, useCategories, useCollections, useAllInventory, useDeleteProduct, useItemGroups } from "@/hooks/useProducts";
+import { useCustomers } from "@/hooks/useCustomers";
 
 /* ============================================================
  * Small utils
@@ -2054,7 +2055,8 @@ export type CustomersVariant = "all" | "portal" | "direct";
 
 export function CustomersPage({ variant = "all" }: { variant?: CustomersVariant } = {}) {
   const item = findItem("customers")!;
-  const customers = useStoreData((s) => s.customers);
+  const { data: customerResponse, isLoading, isError, refetch } = useCustomers(variant === "all" ? undefined : variant);
+  const customers = Array.isArray(customerResponse?.data) ? customerResponse.data : [];
   const orders = useStoreData((s) => s.orders);
   const { updateCustomer, removeCustomer } = useStoreData.getState();
   const [query, setQuery] = useState("");
@@ -2183,9 +2185,11 @@ export function CustomersPage({ variant = "all" }: { variant?: CustomersVariant 
         title={title}
         subtitle={subtitle}
         primaryAction="Refresh"
-        onPrimary={() => pushToast("info", "Customer data is live")}
+        onPrimary={() => { refetch(); pushToast("info", "Customer data refreshed"); }}
         onExport={() => downloadCSV(variant === "all" ? "customers" : `customers-${variant}`, columns, rows)}
       />
+      {isLoading && <div className="text-sm text-muted-foreground">Loading customers...</div>}
+      {isError && <div className="text-sm text-rose-300">Unable to load customers from the backend.</div>}
       <StatsRow stats={stats} />
       <Toolbar
         filters={filters}
@@ -2194,7 +2198,7 @@ export function CustomersPage({ variant = "all" }: { variant?: CustomersVariant 
         query={query}
         onQuery={(v) => { setQuery(v); setPage(1); }}
       />
-      {paged.length ? (
+      {isLoading ? null : paged.length ? (
         <>
           <DataTable
             columns={columns}

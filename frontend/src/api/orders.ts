@@ -17,20 +17,40 @@ const normalizeERPNextResponse = (payload: any) => {
   return payload;
 };
 
-export async function getOrders() {
+export async function getOrders(status?: string) {
+  const params: Record<string, string | number> = {
+    fields: JSON.stringify(["*"]),
+    limit_page_length: 5000,
+    order_by: "creation desc",
+  };
+  if (status) {
+    params.filters = JSON.stringify(status === "Draft"
+      ? [["docstatus", "=", 0]]
+      : [["status", "=", status]]);
+  }
+
   const { data } = await api.get("/resource/Sales Order", {
-    params: {
-      fields: JSON.stringify(["*"]),
-      limit_page_length: 100,
-      order_by: "creation desc",
-    },
+    params,
   });
 
-  const rawOrders = data?.data || [];
+  const rawOrders = Array.isArray(data?.data) ? data.data : [];
   console.log("FULL API RESPONSE:", rawOrders);
 
+  const matchesStatus = (order: any) => {
+    if (!status) return true;
+    const frappeStatus = String(order?.status ?? "").trim().toLowerCase();
+    if (frappeStatus === status.toLowerCase()) return true;
+    return status.toLowerCase() === "draft" && Number(order?.docstatus) === 0;
+  };
+
   if (!rawOrders.some(isMinimalSalesOrder)) {
-    return rawOrders;
+    const matched = rawOrders.filter(matchesStatus);
+    console.log("Sales Order status filter result:", {
+      requestedStatus: status ?? "all",
+      received: rawOrders.map((order: any) => ({ name: order.name, status: order.status, docstatus: order.docstatus })),
+      matched: matched.length,
+    });
+    return matched;
   }
 
   console.warn(
@@ -60,7 +80,13 @@ export async function getOrders() {
   );
 
   console.log("FULL SALES ORDER DETAILS:", detailedOrders);
-  return detailedOrders;
+  const matched = detailedOrders.filter(matchesStatus);
+  console.log("Sales Order status filter result:", {
+    requestedStatus: status ?? "all",
+    received: detailedOrders.map((order: any) => ({ name: order.name, status: order.status, docstatus: order.docstatus })),
+    matched: matched.length,
+  });
+  return matched;
 }
 
 export async function updateSalesOrderStatus(orderName: string, status: string) {

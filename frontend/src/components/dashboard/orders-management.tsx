@@ -85,7 +85,7 @@ export function OrdersManagementPage({ variant = "all" }: { variant?: "all" | "d
     : "Every completed order placed through your storefront — live, multi-tenant, backend-ready.";
 
   // Use the new hook to fetch orders from Frappe
-  const { data: orders = [], isLoading } = useOrders();
+  const { data: orders = [], isLoading, isError } = useOrders(isDrafts ? "Draft" : undefined);
 
   // We still need the Zustand actions for mutations (duplicate, delete, bulk actions)
   const {
@@ -214,6 +214,7 @@ export function OrdersManagementPage({ variant = "all" }: { variant?: "all" | "d
         onExport={() => { downloadCSV(isDrafts ? "draft-orders" : "orders", exportCols, exportRows); pushToast("info", `Exported ${exportRows.length} ${isDrafts ? "drafts" : "orders"}`); }}
       />
       <StatsRow stats={stats} />
+      {isError && <div className="text-sm text-rose-300">Unable to load orders from the Frappe backend.</div>}
 
       {/* Toolbar: search + status pills */}
       <Toolbar
@@ -258,7 +259,9 @@ export function OrdersManagementPage({ variant = "all" }: { variant?: "all" | "d
         />
       )}
 
-      {filtered.length ? (
+      {isLoading ? (
+        <div className="py-12 text-center text-sm text-muted-foreground">Loading {isDrafts ? "draft orders" : "orders"}...</div>
+      ) : filtered.length ? (
         <>
           <SelectableOrdersTable
             columns={columns} rows={rows} orders={paged}
