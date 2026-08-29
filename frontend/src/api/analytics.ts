@@ -13,9 +13,23 @@ export interface AnalyticsData {
   averageOrderValue: number;
   dailyRevenue: Array<{ date: string; value: number }>;
   channels: Array<{ name: string; value: number; pct: number }>;
-  topProducts: Array<{ name: string; qty: number; revenue: number }>;
+  topProducts: Array<{ name: string; qty: number; orders: number; revenue: number }>;
   invoiceCount: number;
   orderCount: number;
+  refundAmount: number;
+  returnedOrders: number;
+  newCustomers: number;
+  returningCustomers: number;
+  totalCustomers: number;
+  repeatPurchaseRate: number;
+  orderStatusCounts: Record<string, number>;
+  payment: {
+    available: boolean;
+    paid: number;
+    unpaid: number;
+    methods: Array<{ name: string; value: number }>;
+  };
+  trafficAttributionAvailable: boolean;
 }
 
 export async function getAnalytics(params: { from: string; to: string; previousFrom: string; previousTo: string }) {

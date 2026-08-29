@@ -10,6 +10,11 @@ import { cn } from "@/lib/utils";
 import { useSiteStore } from "@/lib/site-store";
 import { useStoreData, useStoreStats } from "@/lib/store-data-store";
 import { getTemplate } from "@/lib/templates-data";
+import { useAnalytics } from "@/hooks/useAnalytics";
+import { useOrders } from "@/hooks/useOrders";
+import { useAllInventory } from "@/hooks/useProducts";
+import type { AnalyticsData } from "@/api/analytics";
+import type { Order } from "@/lib/store-data-store";
 
 type Stat = { label: string; value: number; prefix?: string; suffix?: string; change: number; icon: any; tint: string; spark: number[] };
 
@@ -38,13 +43,12 @@ function Counter({ value, prefix = "", suffix = "", decimals = 0 }: { value: num
   return <span ref={ref}>{prefix}{v.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}{suffix}</span>;
 }
 
-function useLiveStats(): Stat[] {
-  const s = useStoreStats();
+function useLiveStats(analytics: AnalyticsData, productCount: number): Stat[] {
   return [
-    { label: "Revenue",   value: s.totalRevenue, prefix: "$", change: 0, icon: DollarSign,   tint: "from-violet-500/30 to-fuchsia-500/10", spark: [0,0,0,0,0,0,0,0,0,0,0, s.totalRevenue/100] },
-    { label: "Orders",    value: s.totalOrders,             change: 0,  icon: ShoppingCart, tint: "from-cyan-500/30 to-sky-500/10",       spark: [0,0,0,0,0,0,0,0,0,0,0, s.totalOrders] },
-    { label: "Customers", value: s.totalCustomers,          change: 0,  icon: Users,        tint: "from-emerald-500/30 to-teal-500/10",   spark: [0,0,0,0,0,0,0,0,0,0,0, s.totalCustomers] },
-    { label: "Products",  value: s.totalProducts,           change: 0, icon: Package,      tint: "from-rose-500/30 to-orange-500/10",    spark: [0,0,0,0,0,0,0,0,0,0,0, s.totalProducts] },
+    { label: "Revenue",   value: analytics.revenue, prefix: "PKR ", change: analytics.revenueGrowth, icon: DollarSign, tint: "from-violet-500/30 to-fuchsia-500/10", spark: analytics.dailyRevenue.map((point) => point.value).slice(-12) },
+    { label: "Orders",    value: analytics.orders,             change: analytics.ordersGrowth,  icon: ShoppingCart, tint: "from-cyan-500/30 to-sky-500/10",       spark: [analytics.orders] },
+    { label: "Customers", value: analytics.totalCustomers,     change: analytics.customersGrowth, icon: Users,        tint: "from-emerald-500/30 to-teal-500/10",   spark: [analytics.totalCustomers] },
+    { label: "Products",  value: productCount,                 change: 0, icon: Package,      tint: "from-rose-500/30 to-orange-500/10",    spark: [productCount] },
   ];
 }
 
@@ -109,13 +113,13 @@ function StatCard({ s, i }: { s: Stat; i: number }) {
   );
 }
 
-function SalesChart() {
-  const data = [42, 55, 48, 63, 58, 72, 68, 84, 78, 92, 88, 105];
-  const labels = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const max = Math.max(...data);
+function SalesChart({ data, labels }: { data: number[]; labels: string[] }) {
+  const chartData = data.length ? data : [0];
+  const chartLabels = labels.length ? labels : ["—"];
+  const max = Math.max(...chartData, 1);
   const w = 600, h = 220, pad = 24;
-  const step = (w - pad * 2) / (data.length - 1);
-  const pts = data.map((d, i) => [pad + i * step, h - pad - (d / max) * (h - pad * 2)] as const);
+  const step = chartData.length > 1 ? (w - pad * 2) / (chartData.length - 1) : 0;
+  const pts = chartData.map((d, i) => [pad + i * step, h - pad - (d / max) * (h - pad * 2)] as const);
   const path = pts.map((p, i) => (i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`)).join(" ");
   const area = `${path} L ${pts[pts.length-1][0]} ${h - pad} L ${pad} ${h - pad} Z`;
 
@@ -163,7 +167,7 @@ function SalesChart() {
           ))}
         </svg>
         <div className="grid grid-cols-12 mt-1 px-6 text-[10px] text-muted-foreground/70">
-          {labels.map(l => <div key={l} className="text-center">{l}</div>)}
+          {chartLabels.map(l => <div key={l} className="text-center">{l}</div>)}
         </div>
       </div>
     </motion.div>
@@ -211,15 +215,7 @@ function AIInsights() {
   );
 }
 
-const ORDERS = [
-  { id: "#1042", customer: "Isabella Chen",  total: "$248.00", status: "Fulfilled", tone: "emerald" },
-  { id: "#1041", customer: "Marcus Rivera",  total: "$92.50",  status: "Processing", tone: "amber" },
-  { id: "#1040", customer: "Amara Okafor",   total: "$1,204.00", status: "Fulfilled", tone: "emerald" },
-  { id: "#1039", customer: "Kenji Tanaka",   total: "$56.00",  status: "Refunded",   tone: "rose" },
-  { id: "#1038", customer: "Elena Rossi",    total: "$389.90", status: "Shipped",    tone: "cyan" },
-];
-
-function RecentOrders() {
+function RecentOrders({ orders }: { orders: Order[] }) {
   const toneMap: Record<string, string> = {
     emerald: "bg-emerald-500/15 text-emerald-300 border-emerald-500/20",
     amber:   "bg-amber-500/15 text-amber-300 border-amber-500/20",
@@ -240,22 +236,22 @@ function RecentOrders() {
         </button>
       </div>
       <div className="divide-y divide-white/[0.05]">
-        {ORDERS.map((o, i) => (
+        {orders.map((o, i) => (
           <motion.div key={o.id}
             initial={{ opacity: 0, x: -8 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }}
             transition={{ delay: i * 0.05 }}
             className="grid grid-cols-[auto_1fr_auto] md:grid-cols-[80px_1fr_120px_120px] items-center gap-3 py-3 group">
-            <div className="text-xs font-mono text-muted-foreground">{o.id}</div>
+            <div className="text-xs font-mono text-muted-foreground">{o.number || o.id}</div>
             <div className="flex items-center gap-2.5 min-w-0">
               <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-gradient text-primary-foreground text-[11px] font-semibold">
-                {o.customer.split(" ").map(n => n[0]).join("")}
+                {o.customerName.split(" ").map((namePart) => namePart[0]).join("")}
               </span>
-              <span className="text-sm truncate">{o.customer}</span>
+              <span className="text-sm truncate">{o.customerName}</span>
             </div>
-            <span className={cn("hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-medium", toneMap[o.tone])}>
+            <span className={cn("hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-medium", toneMap[o.status === "Cancelled" || o.status === "Refunded" ? "rose" : o.status === "Draft" || o.status === "Pending" ? "amber" : "emerald"])}>
               <span className="h-1.5 w-1.5 rounded-full bg-current" />{o.status}
             </span>
-            <div className="text-sm font-medium text-right">{o.total}</div>
+            <div className="text-sm font-medium text-right">PKR {o.total.toLocaleString("en-PK", { maximumFractionDigits: 0 })}</div>
           </motion.div>
         ))}
       </div>
@@ -263,28 +259,22 @@ function RecentOrders() {
   );
 }
 
-const TOP_PRODUCTS = [
-  { name: "Aurora Hoodie",  sold: 342, pct: 92 },
-  { name: "Nimbus Sneakers", sold: 289, pct: 78 },
-  { name: "Vertex Backpack", sold: 214, pct: 62 },
-  { name: "Halo Cap",         sold: 168, pct: 48 },
-];
-
-function TopProducts() {
+function TopProducts({ products }: { products: AnalyticsData["topProducts"] }) {
+  const maxSold = Math.max(...products.map((product) => product.qty), 1);
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
       transition={{ duration: 0.5 }}
       className="rounded-2xl glass-strong p-5 md:p-6 shadow-card">
       <div className="text-sm font-medium mb-4">Top products</div>
       <ul className="space-y-3.5">
-        {TOP_PRODUCTS.map((p, i) => (
+        {products.map((p, i) => (
           <li key={p.name}>
             <div className="flex items-center justify-between text-xs mb-1.5">
               <span className="truncate">{p.name}</span>
-              <span className="text-muted-foreground">{p.sold} sold</span>
+              <span className="text-muted-foreground">{p.qty} sold</span>
             </div>
             <div className="h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
-              <motion.div initial={{ width: 0 }} whileInView={{ width: `${p.pct}%` }} viewport={{ once: true }}
+              <motion.div initial={{ width: 0 }} whileInView={{ width: `${(p.qty / maxSold) * 100}%` }} viewport={{ once: true }}
                 transition={{ duration: 1, delay: i * 0.1, ease: [0.22, 1, 0.36, 1] }}
                 className="h-full bg-primary-gradient shadow-glow" />
             </div>
@@ -295,11 +285,16 @@ function TopProducts() {
   );
 }
 
-function InventoryStatus() {
+function InventoryStatus({ products }: { products: Array<{ stock: number; lowStockThreshold?: number }> }) {
+  const inStock = products.filter((product) => product.stock > (product.lowStockThreshold ?? 0)).length;
+  const lowStock = products.filter((product) => product.stock > 0 && product.stock <= (product.lowStockThreshold ?? 0)).length;
+  const outOfStock = products.filter((product) => product.stock <= 0).length;
+  const total = products.length;
+  const percent = (count: number) => total ? Math.round((count / total) * 100) : 0;
   const items = [
-    { label: "In stock",     count: 812, pct: 86, tint: "text-emerald-300", bar: "bg-emerald-400" },
-    { label: "Low stock",    count: 87,  pct: 9,  tint: "text-amber-300",   bar: "bg-amber-400" },
-    { label: "Out of stock", count: 47,  pct: 5,  tint: "text-rose-300",    bar: "bg-rose-400" },
+    { label: "In stock", count: inStock, pct: percent(inStock), tint: "text-emerald-300", bar: "bg-emerald-400" },
+    { label: "Low stock", count: lowStock, pct: percent(lowStock), tint: "text-amber-300", bar: "bg-amber-400" },
+    { label: "Out of stock", count: outOfStock, pct: percent(outOfStock), tint: "text-rose-300", bar: "bg-rose-400" },
   ];
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
@@ -307,7 +302,7 @@ function InventoryStatus() {
       className="rounded-2xl glass-strong p-5 md:p-6 shadow-card">
       <div className="flex items-center justify-between mb-4">
         <div className="text-sm font-medium">Inventory status</div>
-        <span className="text-[11px] text-muted-foreground">946 total</span>
+        <span className="text-[11px] text-muted-foreground">{total} total</span>
       </div>
       <div className="flex h-3 rounded-full overflow-hidden mb-4">
         {items.map(i => (
@@ -401,7 +396,27 @@ function ActivityFeed() {
 }
 
 export function DashboardHome() {
-  const stats = useLiveStats();
+  const now = new Date();
+  const dateOnly = (date: Date) => date.toISOString().slice(0, 10);
+  const from = new Date(now); from.setDate(from.getDate() - 365);
+  const previousTo = new Date(from); previousTo.setDate(previousTo.getDate() - 1);
+  const previousFrom = new Date(previousTo); previousFrom.setDate(previousFrom.getDate() - 365);
+  const { data: analyticsData } = useAnalytics({ from: dateOnly(from), to: dateOnly(now), previousFrom: dateOnly(previousFrom), previousTo: dateOnly(previousTo) });
+  const { data: ordersData = [] } = useOrders();
+  const { data: inventoryData = [] } = useAllInventory();
+  const analytics: AnalyticsData = analyticsData ?? {
+    revenue: 0, previousRevenue: 0, revenueGrowth: 0, orders: 0, previousOrders: 0, ordersGrowth: 0,
+    customers: 0, previousCustomers: 0, customersGrowth: 0, averageOrderValue: 0, dailyRevenue: [],
+    channels: [], topProducts: [], invoiceCount: 0, orderCount: 0, refundAmount: 0, returnedOrders: 0,
+    newCustomers: 0, returningCustomers: 0, totalCustomers: 0, repeatPurchaseRate: 0,
+    orderStatusCounts: {}, payment: { available: false, paid: 0, unpaid: 0, methods: [] }, trafficAttributionAvailable: false,
+  };
+  const monthlyRevenue = [...analytics.dailyRevenue.reduce((months, point) => {
+    const month = point.date.slice(0, 7);
+    months.set(month, (months.get(month) ?? 0) + point.value);
+    return months;
+  }, new Map<string, number>())].slice(-12);
+  const stats = useLiveStats(analytics, inventoryData.length);
   const site = useSiteStore();
   const dataStats = useStoreStats();
   const activeTemplate = site.templateId ? getTemplate(site.templateId) : null;
@@ -444,17 +459,17 @@ export function DashboardHome() {
       <CartWishlistOverview />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <SalesChart />
+        <SalesChart data={monthlyRevenue.map(([, value]) => value)} labels={monthlyRevenue.map(([month]) => month)} />
         <AIInsights />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <RecentOrders />
-        <TopProducts />
+        <RecentOrders orders={ordersData.slice(0, 5)} />
+        <TopProducts products={analytics.topProducts.slice(0, 5)} />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <InventoryStatus />
+        <InventoryStatus products={inventoryData} />
         <QuickActions />
         <ActivityFeed />
       </div>

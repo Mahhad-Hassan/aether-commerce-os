@@ -47,7 +47,8 @@ export async function getOrders(status?: string) {
     const matched = rawOrders.filter(matchesStatus);
     console.log("Sales Order status filter result:", {
       requestedStatus: status ?? "all",
-      received: rawOrders.map((order: any) => ({ name: order.name, status: order.status, docstatus: order.docstatus })),
+      received: rawOrders.map((order:
+         any) => ({ name: order.name, status: order.status, docstatus: order.docstatus })),
       matched: matched.length,
     });
     return matched;

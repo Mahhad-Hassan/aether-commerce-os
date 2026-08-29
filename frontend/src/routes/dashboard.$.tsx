@@ -27,6 +27,7 @@ import { GrowthDashboardPage, AttributionPage, CampaignsPage } from "@/component
 import { OnlineStorePage } from "@/components/dashboard/online-store";
 import React from "react";
 import { useAnalytics } from "@/hooks/useAnalytics";
+import type { AnalyticsData } from "@/api/analytics";
 
 
 
@@ -1170,6 +1171,18 @@ function TablePage({
  * Analytics — custom KPI + chart view
  * ============================================================ */
 
+function AnalyticsPanel({ title, children }: { title: string; children: React.ReactNode }) {
+  return <div className="rounded-2xl glass-strong border border-white/[0.08] p-5"><div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground/70">{title}</div><div className="mt-4 space-y-2.5">{children}</div></div>;
+}
+
+function MetricLine({ label, value }: { label: string; value: string }) {
+  return <div className="flex items-center justify-between gap-3 text-xs"><span className="text-muted-foreground">{label}</span><span className="font-medium text-foreground">{value}</span></div>;
+}
+
+function Unavailable({ text = "No data available for this period." }: { text?: string }) {
+  return <div className="text-xs text-muted-foreground">{text}</div>;
+}
+
 function AnalyticsLivePage() {
   const item = findItem("analytics")!;
   const [range, setRange] = useState<"7d" | "30d" | "90d" | "1y">("30d");
@@ -1182,19 +1195,33 @@ function AnalyticsLivePage() {
   const iso = (date: Date) => date.toISOString().slice(0, 10);
   const rangeData = { from: iso(fromDate), to: iso(toDate), previousFrom: iso(previousFromDate), previousTo: iso(previousToDate) };
   const { data, isLoading, isError, refetch } = useAnalytics(rangeData);
-  const analytics = data ?? { revenue: 0, revenueGrowth: 0, orders: 0, ordersGrowth: 0, customers: 0, invoiceCount: 0, averageOrderValue: 0, dailyRevenue: [], channels: [], topProducts: [] };
+  const analytics: AnalyticsData = data ?? {
+    revenue: 0, previousRevenue: 0, revenueGrowth: 0, orders: 0, previousOrders: 0, ordersGrowth: 0,
+    customers: 0, previousCustomers: 0, customersGrowth: 0, averageOrderValue: 0, dailyRevenue: [],
+    channels: [], topProducts: [], invoiceCount: 0, orderCount: 0, refundAmount: 0, returnedOrders: 0,
+    newCustomers: 0, returningCustomers: 0, totalCustomers: 0, repeatPurchaseRate: 0,
+    orderStatusCounts: {}, payment: { available: false, paid: 0, unpaid: 0, methods: [] },
+    trafficAttributionAvailable: false,
+  };
   const money = (value: number) => `PKR ${value.toLocaleString("en-PK", { maximumFractionDigits: 0 })}`;
   const growth = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
-  const points = analytics.dailyRevenue.length ? analytics.dailyRevenue : [{ date: rangeData.from, value: 0 }];
+  const dailyPoints = analytics.dailyRevenue.length ? analytics.dailyRevenue : [{ date: rangeData.from, value: 0 }];
+  const points = range === "1y"
+    ? [...dailyPoints.reduce((months, point) => {
+        const month = point.date.slice(0, 7);
+        months.set(month, (months.get(month) ?? 0) + point.value);
+        return months;
+      }, new Map<string, number>())].map(([date, value]) => ({ date, value }))
+    : dailyPoints;
   const max = Math.max(...points.map((point) => point.value), 1);
   const colors = ["bg-primary", "bg-emerald-400", "bg-fuchsia-400", "bg-cyan-400", "bg-amber-400"];
   const stats: Stat[] = [
     { label: `Orders (${range})`, value: analytics.orders.toLocaleString(), delta: growth(analytics.ordersGrowth), trend: analytics.ordersGrowth >= 0 ? "up" : "down" },
-    { label: "Conversion", value: analytics.orders ? `${((analytics.invoiceCount / analytics.orders) * 100).toFixed(2)}%` : "0.00%", delta: "Submitted invoices / orders", trend: "up" },
+    { label: "Conversion", value: "N/A", delta: "Visitor tracking unavailable", trend: "up" },
     { label: "Revenue", value: money(analytics.revenue), delta: growth(analytics.revenueGrowth), trend: analytics.revenueGrowth >= 0 ? "up" : "down" },
-    { label: "Avg order", value: money(analytics.averageOrderValue), delta: `${analytics.customers.toLocaleString()} new customers`, trend: "up" },
+    { label: "Avg order", value: money(analytics.averageOrderValue), delta: `${analytics.totalCustomers.toLocaleString()} customers`, trend: "up" },
   ];
-  const rows: Row[] = analytics.topProducts.map((product) => ({ page: product.name, views: product.qty.toLocaleString(), avg: "—", bounce: "—", revenue: money(product.revenue) }));
+  const rows: Row[] = analytics.topProducts.map((product) => ({ page: product.name, views: product.qty.toLocaleString(), avg: product.orders.toLocaleString(), bounce: "—", revenue: money(product.revenue) }));
 
   return (
     <div className="space-y-6">
@@ -1216,13 +1243,47 @@ function AnalyticsLivePage() {
               {["7d", "30d", "90d", "1y"].map((option) => <button key={option} onClick={() => setRange(option as typeof range)} className={cn("h-7 px-2.5 rounded-lg", range === option ? "bg-primary-gradient text-primary-foreground shadow-glow" : "text-muted-foreground hover:text-foreground")}>{option}</button>)}
             </div>
           </div>
-          <div className="mt-5 h-48 flex items-end gap-1.5">
-            {points.map((point, index) => <motion.div key={point.date} initial={{ height: 0 }} animate={{ height: `${(point.value / max) * 100}%` }} transition={{ delay: index * 0.02, duration: 0.4, ease: [0.22, 1, 0.36, 1] }} className="flex-1 rounded-t-md bg-primary-gradient/70 hover:bg-primary-gradient shadow-glow" title={`${point.date}: ${money(point.value)}`} />)}
+          <div className="relative mt-5 h-48 overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.02]">
+            <div className="pointer-events-none absolute inset-0 flex flex-col justify-between py-3 opacity-30">
+              {[0, 1, 2, 3].map((line) => <div key={line} className="border-t border-dashed border-white/20" />)}
+            </div>
+            <div className="relative z-10 flex h-full items-end gap-1.5 px-2 pt-2">
+              {points.map((point, index) => <motion.div key={point.date} initial={{ height: 0 }} animate={{ height: `${(point.value / max) * 100}%` }} transition={{ delay: index * 0.02, duration: 0.4, ease: [0.22, 1, 0.36, 1] }} className="min-h-0.5 flex-1 rounded-t-md bg-[color-mix(in_oklab,var(--glow)_84%,white_16%)] opacity-90 shadow-[0_0_18px_-5px_color-mix(in_oklab,var(--glow)_90%,transparent)] transition-opacity hover:opacity-100" title={`${point.date}: ${money(point.value)}`} />)}
+            </div>
           </div>
         </motion.div>
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-2xl glass-strong border border-white/[0.08] p-5"><div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground/70">Traffic by channel</div><div className="mt-4 space-y-3">{analytics.channels.length ? analytics.channels.map((channel, index) => <div key={channel.name}><div className="flex items-center justify-between text-xs"><span>{channel.name}</span><span className="text-muted-foreground">{channel.pct}%</span></div><div className="mt-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${channel.pct}%` }} transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }} className={cn("h-full rounded-full", colors[index % colors.length])} /></div></div>) : <div className="text-xs text-muted-foreground">No sales in this period.</div>}</div></motion.div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-2xl glass-strong border border-white/[0.08] p-5"><div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground/70">Traffic by channel</div><div className="mt-4 space-y-3">{analytics.channels.length ? analytics.channels.map((channel, index) => <div key={channel.name}><div className="flex items-center justify-between text-xs"><span>{channel.name}</span><span className="text-muted-foreground">{channel.pct}%</span></div><div className="mt-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden"><motion.div initial={{ width: 0 }} animate={{ width: `${channel.pct}%` }} transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }} className={cn("h-full rounded-full", colors[index % colors.length])} /></div></div>) : <Unavailable />}{!analytics.trafficAttributionAvailable && <div className="pt-1 text-[11px] text-muted-foreground">Frappe has no tracked source, medium, campaign, or referral data for this period.</div>}</div></motion.div>
       </div>
-      {rows.length ? <DataTable columns={[{ key: "page", label: "Top page" }, { key: "views", label: "Views" }, { key: "avg", label: "Avg time" }, { key: "bounce", label: "Bounce" }, { key: "revenue", label: "Revenue", className: "text-right" }]} rows={rows} /> : <EmptyState title="No analytics data" desc="No submitted sales invoices or invoice items were found in this date range." action="Refresh" onAction={() => refetch()} />}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <AnalyticsPanel title="Customer analytics">
+          <MetricLine label="Customers" value={analytics.totalCustomers.toLocaleString()} />
+          <MetricLine label="New customers" value={analytics.newCustomers.toLocaleString()} />
+          <MetricLine label="Returning customers" value={analytics.returningCustomers.toLocaleString()} />
+          <MetricLine label="Repeat purchase rate" value={`${analytics.repeatPurchaseRate.toFixed(1)}%`} />
+        </AnalyticsPanel>
+        <AnalyticsPanel title="Order analytics">
+          {Object.entries(analytics.orderStatusCounts).length ? Object.entries(analytics.orderStatusCounts).map(([status, count]) => <MetricLine key={status} label={status} value={count.toLocaleString()} />) : <Unavailable />}
+          <MetricLine label="Returned orders" value={analytics.returnedOrders.toLocaleString()} />
+          <MetricLine label="Refunded amount" value={money(analytics.refundAmount)} />
+        </AnalyticsPanel>
+        <AnalyticsPanel title="Payment analytics">
+          {analytics.payment.available ? <>
+            <MetricLine label="Paid amount" value={money(analytics.payment.paid)} />
+            <MetricLine label="Unpaid amount" value={money(analytics.payment.unpaid)} />
+            {analytics.payment.methods.map((method) => <MetricLine key={method.name} label={method.name} value={money(method.value)} />)}
+          </> : <Unavailable />}
+        </AnalyticsPanel>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <AnalyticsPanel title="Conversion funnel">
+          <MetricLine label="Orders" value={analytics.orders.toLocaleString()} />
+          <Unavailable text="Visitors, product views, cart and checkout events are not tracked by the available Frappe data." />
+        </AnalyticsPanel>
+        <AnalyticsPanel title="Geographic analytics">
+          <Unavailable text="Customer address data is not available in this analytics response." />
+        </AnalyticsPanel>
+      </div>
+      {rows.length ? <DataTable columns={[{ key: "page", label: "Product" }, { key: "views", label: "Units sold" }, { key: "avg", label: "Orders" }, { key: "bounce", label: "Tracking" }, { key: "revenue", label: "Revenue", className: "text-right" }]} rows={rows} /> : <EmptyState title="No data available for this period" desc="No submitted sales invoices or invoice items were found in this date range." action="Refresh" onAction={() => refetch()} />}
     </div>
   );
 }
