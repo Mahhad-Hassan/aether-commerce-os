@@ -4,6 +4,7 @@
  * ============================================================ */
 
 import type { Order, OrderItem, Address, OrderShippingMethod, OrderStatus, PaymentStatus, ShippingStatus, OrderTimelineEvent } from "@/lib/store-data-store";
+import { getSalesOrderWorkflowState } from "@/lib/order-workflow";
 
 // Frappe Sales Order response structure (partial)
 export interface FrappeSalesOrder {
@@ -12,6 +13,7 @@ export interface FrappeSalesOrder {
   company?: string;
   customer_name?: string;
   status: string;
+  workflow_state?: string | null;
   grand_total: number;
   transaction_date: string;
   items?: FrappeSalesOrderItem[];
@@ -26,6 +28,8 @@ export interface FrappeSalesOrder {
   contact_person?: string;
   contact_email?: string;
   contact_mobile?: string;
+  delivery_note?: string | null;
+  sales_invoice?: string | null;
 }
 
 export interface FrappeSalesOrderItem {
@@ -62,17 +66,24 @@ export interface FrappeAddress {
  * Map Frappe status to frontend OrderStatus
  */
 function mapOrderStatus(frappeStatus: string): OrderStatus {
+  const normalized = frappeStatus.trim();
   const statusMap: Record<string, OrderStatus> = {
     "Draft": "Draft",
     "Pending": "Pending",
+    "Pending Approval": "Pending",
+    "Pending_Approval": "Pending",
+    "Approved": "Confirmed",
     "On Hold": "Confirmed",
     "To Deliver": "Processing",
     "To Bill": "Processing",
     "Completed": "Delivered",
+    "Shipped": "Shipped",
+    "Delivered": "Delivered",
+    "Rejected": "Failed",
     "Cancelled": "Cancelled",
     "Closed": "Delivered",
   };
-  return statusMap[frappeStatus] ?? "Confirmed";
+  return statusMap[normalized] ?? statusMap[normalized.toLowerCase()] ?? "Confirmed";
 }
 
 /**
@@ -226,8 +237,9 @@ export function adaptFrappeOrder(
   const total = frappeOrder.grand_total ?? frappeOrder.base_grand_total ?? frappeOrder.rounded_total ?? subtotal;
   const tax = frappeOrder.total_taxes_and_charges ?? 0;
   const shippingCost = Math.max(0, total - subtotal - tax);
-
-  const createdAt = parseDate(frappeOrder.transaction_date);
+  const workflowState = getSalesOrderWorkflowState(frappeOrder);
+  const frappeStatus = frappeOrder.status ?? workflowState;
+  const createdAt = parseDate(frappeOrder.transaction_date ?? frappeOrder.creation ?? new Date().toISOString());
 
   return {
     id: frappeOrder.name,
@@ -256,10 +268,14 @@ export function adaptFrappeOrder(
     notes: undefined,
     trackingNumber: undefined,
     carrier: undefined,
-    status: mapOrderStatus(frappeOrder.status),
-    paymentStatus: mapPaymentStatus(frappeOrder.status),
-    shippingStatus: mapShippingStatus(frappeOrder.status),
-    fulfillment: frappeOrder.status === "Completed" ? "Fulfilled" : "Unfulfilled",
+    status: mapOrderStatus(frappeStatus),
+    workflowState,
+    frappeStatus,
+    deliveryNote: frappeOrder.delivery_note ?? undefined,
+    salesInvoice: frappeOrder.sales_invoice ?? undefined,
+    paymentStatus: mapPaymentStatus(frappeStatus),
+    shippingStatus: mapShippingStatus(frappeStatus),
+    fulfillment: frappeStatus === "Completed" || workflowState.toLowerCase() === "delivered" ? "Fulfilled" : "Unfulfilled",
     timeline: buildTimeline(frappeOrder),
     createdAt,
     updatedAt: createdAt,

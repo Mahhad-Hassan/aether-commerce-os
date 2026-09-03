@@ -8,6 +8,7 @@
  * `useStoreData` Zustand store — no duplicate models are introduced.
  * ============================================================ */
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -20,7 +21,17 @@ import { cn } from "@/lib/utils";
 import { FloatingLayer } from "@/components/ui/floating-menu";
 import { findItem } from "@/components/dashboard/nav-config";
 import { useOrders } from "@/hooks/useOrders";
-import { deliverSalesOrder, updateSalesOrderStatus } from "@/api/orders";
+import { approveSalesOrder, cancelSalesOrder, deliverSalesOrder, rejectSalesOrder, submitSalesOrder, updateSalesOrderStatus } from "@/api/orders";
+import {
+  canApproveOrder,
+  canCancelOrder,
+  canEditOrder,
+  canRejectOrder,
+  getSalesOrderWorkflowState,
+} from "@/lib/order-workflow";
+import {
+  useAuthStore,
+} from "@/lib/auth-store";
 import {
   useStoreData,
   type Order,
@@ -57,6 +68,23 @@ const ALL_STATUSES: OrderStatus[] = [
 ];
 const perPage = 10;
 
+const getValidERPNextSalesOrderStatus = (next: OrderStatus): string | null => {
+  switch (next) {
+    case "Confirmed": return "Submitted";
+    case "Cancelled": return "Cancelled";
+    case "Paid":
+    case "Processing":
+    case "Packed":
+    case "Shipped":
+    case "Out for delivery":
+    case "Delivered":
+    case "Refunded":
+    case "Failed":
+      return null;
+    default: return null;
+  }
+};
+
 // useEffect(() => {
 //   async function loadOrders() {
 //     try {
@@ -83,9 +111,17 @@ export function OrdersManagementPage({ variant = "all" }: { variant?: "all" | "d
   const pageSubtitle = isDrafts
     ? "Manually created orders that haven't been placed yet — send invoices or convert to real orders."
     : "Every completed order placed through your storefront — live, multi-tenant, backend-ready.";
+  const queryClient = useQueryClient();
 
   // Use the new hook to fetch orders from Frappe
-  const { data: orders = [], isLoading, isError } = useOrders(isDrafts ? "Draft" : undefined);
+  const { data: orders = [], isLoading, isError, refetch: refetchRemoteOrders } = useOrders(isDrafts ? "Draft" : undefined);
+
+  const refreshOrderQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["orders"] }),
+      queryClient.refetchQueries({ queryKey: ["orders"] }),
+    ]);
+  };
 
   // We still need the Zustand actions for mutations (duplicate, delete, bulk actions)
   const {
@@ -196,6 +232,74 @@ export function OrdersManagementPage({ variant = "all" }: { variant?: "all" | "d
   });
   const exportCols: Column[] = Object.keys(exportRows[0] ?? { order: "" }).map((k) => ({ key: k, label: k }));
 
+  const updateRemoteOrderStatus = async (id: string, next: OrderStatus) => {
+    const remoteStatus = getValidERPNextSalesOrderStatus(next);
+    if (next === "Delivered") {
+      const delivery = await deliverSalesOrder(id);
+
+      if (delivery?.success === true) {
+        if (delivery.already_delivered) {
+          pushToast("info", `Order ${id} was already delivered`);
+          await refreshOrderQueries();
+          return;
+        }
+
+        queryClient.setQueryData(["orders"], (oldOrders: any) => {
+          if (!Array.isArray(oldOrders)) return oldOrders;
+          return oldOrders.map((order) => order.id === id ? {
+            ...order,
+            status: "Delivered",
+            workflowState: "Delivered",
+            shippingStatus: "Delivered",
+            paymentStatus: "Paid",
+            fulfillment: "Fulfilled",
+            deliveryNote: delivery.delivery_note ?? order.deliveryNote,
+            salesInvoice: delivery.sales_invoice ?? order.salesInvoice,
+          } : order);
+        });
+
+        await refreshOrderQueries();
+        pushToast("success", delivery.sales_invoice ? `Delivered · ${delivery.sales_invoice}` : "Order delivered");
+        return;
+      }
+
+      if (delivery?.already_delivered) {
+        pushToast("info", `Order ${id} was already delivered`);
+        await refreshOrderQueries();
+        return;
+      }
+
+      throw new Error(delivery?.message ?? "Delivery failed");
+    }
+    if (!remoteStatus) {
+      return;
+    }
+    await updateSalesOrderStatus(id, remoteStatus);
+  };
+
+  const applySelectedRemoteStatus = async (ids: string[], next: OrderStatus) => {
+    const remoteIds = ids.filter((id) => orders.some((order) => order.id === id));
+    const localIds = ids.filter((id) => !orders.some((order) => order.id === id));
+
+    if (remoteIds.length) {
+      const supported = remoteIds.filter(async () => true);
+      const supportedIds: string[] = [];
+      for (const id of remoteIds) {
+        if (getValidERPNextSalesOrderStatus(next) !== null) supportedIds.push(id);
+      }
+      if (supportedIds.length) {
+        await Promise.all(supportedIds.map((id) => updateRemoteOrderStatus(id, next)));
+      }
+      await refetchRemoteOrders();
+    }
+
+    if (localIds.length) {
+      if (next === "Paid") bulkMarkOrdersPaid(localIds);
+      else if (next === "Shipped") bulkShipOrders(localIds);
+      else if (next === "Cancelled") bulkCancelOrders(localIds, { restock: true });
+    }
+  };
+
   const printSelected = () => {
     const set = new Set(selected);
     const list = orders.filter((o) => set.has(o.id));
@@ -247,8 +351,6 @@ export function OrdersManagementPage({ variant = "all" }: { variant?: "all" | "d
       {selected.length > 0 && (
         <BulkBar count={selected.length}
           onClear={clearSel}
-          onPaid={() => { bulkMarkOrdersPaid(selected); pushToast("success", `${selected.length} marked paid`); clearSel(); }}
-          onShip={() => { bulkShipOrders(selected); pushToast("success", `${selected.length} shipped`); clearSel(); }}
           onCancel={() => { if (confirm(`Cancel ${selected.length} order${selected.length === 1 ? "" : "s"}? Inventory will be restored.`)) { bulkCancelOrders(selected, { restock: true }); pushToast("success", `${selected.length} cancelled`); clearSel(); } }}
           onDelete={() => { if (confirm(`Delete ${selected.length} order${selected.length === 1 ? "" : "s"} permanently?`)) { removeManyOrders(selected); pushToast("success", `${selected.length} deleted`); clearSel(); } }}
           onPrint={printSelected}
@@ -267,11 +369,9 @@ export function OrdersManagementPage({ variant = "all" }: { variant?: "all" | "d
             columns={columns} rows={rows} orders={paged}
             selected={selected} onToggle={toggleSel}
             allChecked={allChecked} onToggleAll={toggleAllPage}
-            onAction={(a, o) => {
+            onAction={async (a, o) => {
               if (a === "duplicate") { const c = duplicateOrder(o.id); if (c) pushToast("success", `Draft ${c.number} created`); }
               if (a === "delete") { if (confirm(`Delete ${o.number}?`)) { removeOrder(o.id); pushToast("success", "Order deleted"); } }
-              if (a === "mark-paid") { setOrderStatus(o.id, "Paid", "Manually marked paid"); pushToast("success", `${o.number} marked paid`); }
-              if (a === "ship") { setOrderStatus(o.id, "Shipped", "Marked shipped from list"); notifyEmail("Order shipped", o.customerEmail); }
               if (a === "print") printInvoices([o]);
             }}
           />
@@ -298,7 +398,7 @@ function SelectableOrdersTable({
   columns: Column[]; rows: Row[]; orders: Order[];
   selected: string[]; onToggle: (id: string, on?: boolean) => void;
   allChecked: boolean; onToggleAll: () => void;
-  onAction: (a: "mark-paid" | "ship" | "print" | "duplicate" | "delete", o: Order) => void;
+  onAction: (a: "print" | "duplicate" | "delete", o: Order) => void;
 }) {
   return (
     <div className="rounded-2xl glass-strong border border-white/[0.08] overflow-hidden">
@@ -351,12 +451,11 @@ function SelectableOrdersTable({
 }
 
 function OrderRowMenu({ order, onAction }: {
-  order: Order; onAction: (a: "mark-paid" | "ship" | "print" | "duplicate" | "delete", o: Order) => void;
+  order: Order; onAction: (a: "print" | "duplicate" | "delete", o: Order) => void;
 }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
-  const canPay = order.paymentStatus !== "Paid" && order.paymentStatus !== "Refunded";
-  const canShip = !["Shipped", "Delivered", "Cancelled", "Refunded", "Returned"].includes(order.status);
+
   return (
     <span className="inline-block" onClick={(e) => e.stopPropagation()}>
       <button ref={btnRef} onClick={() => setOpen((o) => !o)}
@@ -365,8 +464,6 @@ function OrderRowMenu({ order, onAction }: {
       </button>
       <FloatingLayer open={open} onClose={() => setOpen(false)} anchorRef={btnRef} align="end" className="w-48 p-1 text-left">
         <MenuItem icon={ChevronRight} label="Open details" href={`/dashboard/orders/${order.id}`} />
-        {canPay && <MenuItem icon={CreditCard} label="Mark paid" onClick={() => { setOpen(false); onAction("mark-paid", order); }} />}
-        {canShip && <MenuItem icon={Truck} label="Mark shipped" onClick={() => { setOpen(false); onAction("ship", order); }} />}
         <MenuItem icon={Printer} label="Print invoice" onClick={() => { setOpen(false); onAction("print", order); }} />
         <MenuItem icon={Copy} label="Duplicate" onClick={() => { setOpen(false); onAction("duplicate", order); }} />
         <MenuItem icon={Trash2} label="Delete" danger onClick={() => { setOpen(false); onAction("delete", order); }} />
@@ -390,9 +487,9 @@ function MenuItem({ icon: Icon, label, onClick, href, danger }: {
 /* ============================================================
  * Bulk action bar
  * ============================================================ */
-function BulkBar({ count, onClear, onPaid, onShip, onCancel, onDelete, onPrint, onExport }: {
+function BulkBar({ count, onClear, onCancel, onDelete, onPrint, onExport }: {
   count: number; onClear: () => void;
-  onPaid: () => void; onShip: () => void; onCancel: () => void; onDelete: () => void;
+  onCancel: () => void; onDelete: () => void;
   onPrint: () => void; onExport: () => void;
 }) {
   return (
@@ -401,8 +498,6 @@ function BulkBar({ count, onClear, onPaid, onShip, onCancel, onDelete, onPrint, 
       <span className="font-medium">{count} selected</span>
       <button onClick={onClear} className="text-muted-foreground hover:text-foreground px-2">Clear</button>
       <div className="ml-auto flex items-center gap-1 flex-wrap">
-        <BulkBtn icon={CreditCard} label="Mark paid" onClick={onPaid} />
-        <BulkBtn icon={Truck} label="Ship" onClick={onShip} />
         <BulkBtn icon={Printer} label="Print" onClick={onPrint} />
         <BulkBtn icon={Download} label="Export" onClick={onExport} />
         <BulkBtn icon={Ban} label="Cancel" onClick={onCancel} tone="warn" />
@@ -459,17 +554,38 @@ function DateInput({ label, value, onChange }: { label: string; value: string; o
  * ============================================================ */
 export function OrderDetailsPage({ id }: { id: string }) {
   const localOrders = useStoreData((s) => s.orders);
-  const { data: remoteOrders = [] } = useOrders();
+  const queryClient = useQueryClient();
+  const { data: remoteOrders = [], refetch: refetchRemoteOrders } = useOrders();
+  const currentUser = useAuthStore((s) => s.user);
   const navigate = useNavigate();
   const localOrder = localOrders.find((o) => o.id === id);
   const remoteOrder = remoteOrders.find((o) => o.id === id);
-  const [remoteStatus, setRemoteStatus] = useState<OrderStatus | undefined>();
-  const order = remoteStatus && remoteOrder
-    ? { ...remoteOrder, status: remoteStatus }
-    : localOrder ?? remoteOrder;
+  const order = (() => {
+    if (!remoteOrder) return localOrder;
+    if (!localOrder) return remoteOrder;
+    return {
+      ...remoteOrder,
+      ...localOrder,
+      paymentStatus: localOrder.paymentStatus ?? remoteOrder.paymentStatus,
+      shippingStatus: localOrder.shippingStatus ?? remoteOrder.shippingStatus,
+      status: localOrder.status ?? remoteOrder.status,
+      workflowState: localOrder.workflowState ?? remoteOrder.workflowState,
+      timeline: localOrder.timeline?.length ? localOrder.timeline : remoteOrder.timeline,
+      updatedAt: localOrder.updatedAt ?? remoteOrder.updatedAt,
+    } as typeof remoteOrder & typeof localOrder;
+  })();
+  const workflowState = getSalesOrderWorkflowState(order as any);
+  const canEdit = canEditOrder(order as any);
+  const canCancel = canCancelOrder(order as any);
+  const canApprove = canApproveOrder(order as any);
+  const canReject = canRejectOrder(order as any);
+  const isAdminUser = Boolean(
+    currentUser?.isAdmin ||
+    currentUser?.roles?.some((role: string) => ["Administrator", "System Manager"].includes(role))
+  );
   const {
-    setOrderStatus, cancelOrder, refundOrder, duplicateOrder, removeOrder,
-    setOrderTracking, addOrderNote,
+    setOrderStatus, setOrderPaymentStatus, cancelOrder, refundOrder, duplicateOrder, removeOrder,
+    setOrderTracking, addOrderNote, updateOrder,
   } = useStoreData.getState();
 
   const [note, setNote] = useState("");
@@ -488,20 +604,76 @@ export function OrderDetailsPage({ id }: { id: string }) {
     );
   }
 
+  const refreshOrderFromERPNext = async () => {
+    if (!remoteOrder) return;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["orders"] }),
+      refetchRemoteOrders(),
+    ]);
+  };
+
   const advanceTo = async (s: OrderStatus, msg?: string) => {
-    if (remoteOrder && !localOrder) {
+    if (remoteOrder) {
+      const isDraft = Number(remoteOrder?.status ?? 0) === 0 || getSalesOrderWorkflowState(remoteOrder).toLowerCase() === "draft";
+      const remoteStatus = getValidERPNextSalesOrderStatus(s);
       try {
-        if (s === "Shipped" || s === "Delivered") {
-          await deliverSalesOrder(remoteOrder.id);
-        } else {
-          const erpStatus = s === "Processing" ? "To Deliver" : s;
-          await updateSalesOrderStatus(remoteOrder.id, erpStatus);
+        if (isDraft && s === "Confirmed") {
+          await submitSalesOrder(remoteOrder.id);
+          await refreshOrderFromERPNext();
+          setOrderStatus(order.id, "Confirmed", msg ?? "Confirmed from ERPNext");
+          pushToast("success", `${order.number} confirmed`);
+          return;
         }
-        setRemoteStatus(s);
+
+        if (isDraft) {
+          await submitSalesOrder(remoteOrder.id);
+          await refreshOrderFromERPNext();
+        }
+
+        if (s === "Shipped" || s === "Delivered") {
+          const delivery = await deliverSalesOrder(remoteOrder.id);
+          if (delivery?.success === true) {
+            if (delivery.already_delivered) {
+              await refreshOrderFromERPNext();
+              pushToast("info", `${order.number} was already delivered`);
+              return;
+            }
+
+            const updatedFields = {
+              status: "Delivered" as OrderStatus,
+              workflowState: "Delivered",
+              shippingStatus: "Delivered" as ShippingStatus,
+              paymentStatus: "Paid" as PaymentStatus,
+              fulfillment: "Fulfilled" as const,
+              deliveryNote: delivery.delivery_note ?? undefined,
+              salesInvoice: delivery.sales_invoice ?? undefined,
+            };
+
+            queryClient.setQueryData(["orders"], (oldOrders: any) => {
+              if (!Array.isArray(oldOrders)) return oldOrders;
+              return oldOrders.map((item) => item.id === remoteOrder.id ? { ...item, ...updatedFields } : item);
+            });
+
+            updateOrder(order.id, updatedFields);
+            await refreshOrderFromERPNext();
+            pushToast("success", delivery.sales_invoice ? `${order.number} delivered · ${delivery.sales_invoice}` : `${order.number} delivered`);
+            return;
+          }
+          throw new Error(delivery?.message ?? "Delivery failed");
+        } else if (remoteStatus) {
+          await updateSalesOrderStatus(remoteOrder.id, remoteStatus);
+        } else {
+          pushToast("error", `ERPNext does not support changing this order to ${s}.`);
+          return;
+        }
+
+        await refreshOrderFromERPNext();
+        setOrderStatus(order.id, s, msg ?? `Updated to ${s}`);
+        if (s === "Paid") setOrderPaymentStatus(order.id, "Paid", msg ?? "Marked paid from dashboard");
         pushToast("success", `${order.number} → ${s}`);
       } catch (error) {
         console.error("Failed to update Sales Order status", error);
-        pushToast("error", "Could not update order status in ERPNext");
+        pushToast("error", error instanceof Error ? error.message : "ERPNext update failed. No local status was changed.");
         return;
       }
     } else {
@@ -510,6 +682,57 @@ export function OrderDetailsPage({ id }: { id: string }) {
     }
     if (s === "Shipped") notifyEmail("Order shipped", order.customerEmail);
     if (s === "Delivered") notifyEmail("Order delivered", order.customerEmail);
+  };
+
+  const handleApprove = async () => {
+    if (!remoteOrder) return;
+    try {
+      await approveSalesOrder(remoteOrder.id);
+      await refreshOrderFromERPNext();
+      pushToast("success", `${order.number} approved in ERPNext`);
+    } catch (error) {
+      console.error("Order approval failed", error);
+      pushToast("error", "Order approval failed. Please try again.");
+    }
+  };
+
+  const handleReject = async () => {
+    if (!remoteOrder) return;
+    try {
+      await rejectSalesOrder(remoteOrder.id);
+      await refreshOrderFromERPNext();
+      pushToast("success", `${order.number} rejected in ERPNext`);
+    } catch (error) {
+      console.error("Order rejection failed", error);
+      pushToast("error", "Order rejection failed. Please try again.");
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!remoteOrder) {
+      if (confirm(`Cancel ${order.number}? Inventory will be restored.`)) {
+        cancelOrder(order.id, { restock: true });
+        setOrderStatus(order.id, "Cancelled", "Cancelled from dashboard");
+        pushToast("success", "Order cancelled");
+        notifyEmail("Order cancelled", order.customerEmail);
+      }
+      return;
+    }
+
+    if (!canCancel) {
+      pushToast("error", "This order can no longer be cancelled.");
+      return;
+    }
+
+    try {
+      await cancelSalesOrder(remoteOrder.id);
+      await refreshOrderFromERPNext();
+      setOrderStatus(order.id, "Cancelled", "Cancelled in ERPNext");
+      pushToast("success", `${order.number} cancelled in ERPNext`);
+    } catch (error) {
+      console.error("Order cancellation failed", error);
+      pushToast("error", error instanceof Error ? error.message : "ERPNext cancellation failed. No local status was changed.");
+    }
   };
 
   const paymentTone: Record<PaymentStatus, string> = {
@@ -539,7 +762,7 @@ export function OrderDetailsPage({ id }: { id: string }) {
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="font-display text-2xl md:text-3xl font-semibold tracking-tight">{order.number}</h1>
-              <StatusPill label={order.status} />
+              <StatusPill label={workflowState || order.status} />
               <span className={cn("inline-flex items-center h-5 px-2 rounded-full text-[10px] font-medium", paymentTone[order.paymentStatus])}>
                 {order.paymentStatus}
               </span>
@@ -549,6 +772,7 @@ export function OrderDetailsPage({ id }: { id: string }) {
             </div>
             <p className="text-sm text-muted-foreground mt-0.5">
               {dtLong(order.createdAt)} · {order.invoiceNumber}
+              {workflowState && <> · <span className="font-mono">{workflowState}</span></>}
               {order.transactionId && <> · <span className="font-mono">{order.transactionId}</span></>}
             </p>
           </div>
@@ -571,27 +795,22 @@ export function OrderDetailsPage({ id }: { id: string }) {
 
       {/* Action bar with full lifecycle */}
       <div className="rounded-2xl glass-strong border border-white/[0.08] p-3 flex flex-wrap gap-2">
+        {remoteOrder && isAdminUser && (canApprove || canReject) && (
+          <>
+            {canApprove && <LifecycleBtn active={false} disabled={false} icon={BadgeCheck} label="Approve" onClick={handleApprove} />}
+            {canReject && <LifecycleBtn active={false} disabled={false} icon={X} label="Reject" onClick={handleReject} />}
+          </>
+        )}
         <LifecycleBtn active={order.status === "Confirmed"} disabled={order.status === "Cancelled" || order.status === "Refunded"}
           icon={BadgeCheck} label="Confirm" onClick={() => advanceTo("Confirmed")} />
-        <LifecycleBtn active={order.paymentStatus === "Paid"} disabled={order.paymentStatus === "Paid" || order.status === "Cancelled"}
-          icon={CreditCard} label="Mark paid" onClick={() => advanceTo("Paid", "Marked paid from details")} />
-        <LifecycleBtn active={order.status === "Processing"} disabled={order.status === "Cancelled" || order.status === "Refunded"}
-          icon={Package} label="Processing" onClick={() => advanceTo("Processing")} />
-        <LifecycleBtn active={order.status === "Packed"} disabled={order.status === "Cancelled" || order.status === "Refunded"}
-          icon={Package} label="Pack" onClick={() => advanceTo("Packed")} />
-        <LifecycleBtn active={order.status === "Shipped"} disabled={order.status === "Cancelled" || order.status === "Refunded"}
-          icon={Truck} label="Ship" onClick={() => advanceTo("Shipped")} />
-        <LifecycleBtn active={order.status === "Out for delivery"} disabled={order.status === "Cancelled" || order.status === "Refunded"}
-          icon={Truck} label="Out for delivery" onClick={() => advanceTo("Out for delivery")} />
         <LifecycleBtn active={order.status === "Delivered"} disabled={order.status === "Cancelled" || order.status === "Refunded"}
           icon={Check} label="Delivered" onClick={() => advanceTo("Delivered")} />
         <div className="ml-auto flex items-center gap-2">
-          <button onClick={() => {
-            if (confirm(`Cancel ${order.number}? Inventory will be restored.`)) {
-              cancelOrder(order.id, { restock: true }); pushToast("success", "Order cancelled");
-              notifyEmail("Order cancelled", order.customerEmail);
-            }
-          }} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl glass hover:bg-amber-500/10 hover:text-amber-200 text-xs">
+          <button
+            onClick={handleCancel}
+            disabled={remoteOrder ? !canCancel : false}
+            className={cn("inline-flex items-center gap-1.5 h-9 px-3 rounded-xl glass hover:bg-amber-500/10 hover:text-amber-200 text-xs disabled:opacity-40 disabled:cursor-not-allowed", remoteOrder && !canCancel && "opacity-40")}
+          >
             <Ban className="h-3.5 w-3.5" /> Cancel
           </button>
           <button onClick={() => {
@@ -713,6 +932,8 @@ export function OrderDetailsPage({ id }: { id: string }) {
           <Card title="Order information" icon={Package}>
             <Row2 label="Order" value={order.number} />
             <Row2 label="Invoice" value={order.invoiceNumber} />
+            {order.salesInvoice && <Row2 label="Sales invoice" value={<span className="font-mono text-xs">{order.salesInvoice}</span>} />}
+            {order.deliveryNote && <Row2 label="Delivery note" value={<span className="font-mono text-xs">{order.deliveryNote}</span>} />}
             <Row2 label="Items" value={order.itemsCount} />
             <Row2 label="Company" value={order.company ?? "—"} />
             <Row2 label="Date" value={dt(order.createdAt)} />

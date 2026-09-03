@@ -53,11 +53,22 @@ function useLiveStats(analytics: AnalyticsData, productCount: number): Stat[] {
 }
 
 function Sparkline({ data, positive }: { data: number[]; positive: boolean }) {
-  const max = Math.max(...data), min = Math.min(...data);
+  const safe = (data ?? []).filter((value) => Number.isFinite(value));
   const w = 100, h = 32;
-  const pts = data.map((d, i) => {
-    const x = (i / (data.length - 1)) * w;
-    const y = h - ((d - min) / (max - min || 1)) * h;
+
+  if (!safe.length) {
+    return (
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-8">
+        <line x1="0" y1={h / 2} x2={w} y2={h / 2} stroke="var(--muted)" strokeDasharray="3 4" opacity="0.5" />
+      </svg>
+    );
+  }
+
+  const max = Math.max(...safe), min = Math.min(...safe);
+  const span = max - min || 1;
+  const pts = safe.map((d, i) => {
+    const x = safe.length === 1 ? w / 2 : (i / (safe.length - 1)) * w;
+    const y = h - ((d - min) / span) * h;
     return `${x},${y}`;
   }).join(" ");
   const stroke = positive ? "var(--glow-2)" : "oklch(0.65 0.24 25)";

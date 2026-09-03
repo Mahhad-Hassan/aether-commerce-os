@@ -37,18 +37,53 @@ export async function logout() {
 }
 
 export async function getCurrentUser() {
-  const { data } = await api.get("/method/whoami");
+  const loggedUserRes = await api.get("/method/frappe.auth.get_logged_user");
+  const userId = loggedUserRes.data?.message;
 
-  const userId = data.message;
+  if (!userId || userId === "Guest") {
+    throw new Error("No authenticated Frappe user found.");
+  }
 
-  const res = await api.get(`/resource/User/${userId}`);
+  const userRes = await api.get(`/resource/User/${encodeURIComponent(userId)}`, {
+    params: {
+      fields: JSON.stringify([
+        "name",
+        "email",
+        "full_name",
+        "user_image",
+        "user_type",
+        "enabled",
+        "roles",
+      ]),
+    },
+  });
+
+  const userData = userRes.data?.data ?? {};
+  const rawRoles = Array.isArray(userData.roles) ? userData.roles : [];
+  const roles = rawRoles
+    .map((role: unknown) => {
+      if (typeof role === "string") return role;
+      if (role && typeof role === "object") {
+        const maybeRole = (role as Record<string, unknown>).role ?? (role as Record<string, unknown>).name ?? (role as Record<string, unknown>).Role;
+        return typeof maybeRole === "string" ? maybeRole : "";
+      }
+      return "";
+    })
+    .filter((role): role is string => Boolean(role));
+
+  const isAdmin =
+    roles.some((role: string) => ["Administrator", "System Manager"].includes(role)) ||
+    userData.user_type === "System User" ||
+    userData.name === "Administrator";
 
   return {
-    id: res.data.data.name,
-    email: res.data.data.email,
-    name: res.data.data.full_name,
-    avatarUrl: res.data.data.user_image,
+    id: userData.name || userId,
+    email: userData.email || userId,
+    name: userData.full_name || userData.name || userId,
+    avatarUrl: userData.user_image,
     createdAt: Date.now(),
+    roles,
+    isAdmin,
   };
 }
 export async function register(

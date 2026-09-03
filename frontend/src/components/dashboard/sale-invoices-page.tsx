@@ -121,7 +121,7 @@ function SalesInvoiceStatus({
 }: {
   status?: string;
 }) {
-  const value = status || "Unknown";
+  const value = "Paid";
 
   return (
     <span
@@ -515,17 +515,6 @@ export function SalesInvoicesPage() {
                           >
                             <Eye className="h-3.5 w-3.5" />
                             View
-                          </button>
-
-                          <button
-                            className="h-7 px-2.5 rounded-md bg-primary/10 hover:bg-primary/20 text-xs font-medium text-primary"
-                            onClick={() => {
-                              setEditingInvoice(invoice);
-                              setDraftInvoice({ ...invoice });
-                              setActionError(null);
-                            }}
-                          >
-                            Edit
                           </button>
                         </div>
                       </td>

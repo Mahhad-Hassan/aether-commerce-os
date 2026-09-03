@@ -651,19 +651,24 @@ function SignInForm() {
       // CRITICAL: Clear stale stores from previous user before setting new user
       useAuthStore.getState().signOut();
 
-      // Set authenticated user (using email as unique ID)
-      const userId = email;
+      const currentUser = await getCurrentUser();
+
+      // Set authenticated user with actual ERPNext role metadata so admin-only workflow actions can render.
       setUser({
-        id: userId,
-        email,
-        name: email.split("@")[0],
-        avatarUrl: "",
-        createdAt: Date.now(),
+        id: currentUser.id || email,
+        email: currentUser.email || email,
+        name: currentUser.name || email.split("@")[0],
+        avatarUrl: currentUser.avatarUrl || "",
+        createdAt: currentUser.createdAt,
+        roles: currentUser.roles ?? [],
+        isAdmin: Boolean(currentUser.isAdmin),
       });
 
-      // CRITICAL: Switch tenant to authenticated user to isolate data
-      useStoreData.getState().switchTenant(userId);
-      useSiteStore.getState().switchTenant(userId);
+      // CRITICAL: Switch tenant to the authenticated user to isolate data.
+      // Use the actual user ID returned from the Frappe session, not an undefined variable.
+      const tenantUserId = currentUser.id || email;
+      useStoreData.getState().switchTenant(tenantUserId);
+      useSiteStore.getState().switchTenant(tenantUserId);
 
       // ISSUE 1 FIX: Fetch user's stores from backend instead of relying on stale Zustand state
       const backendStores = await getMyStores();

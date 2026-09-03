@@ -395,7 +395,15 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
-export type AuthUser = { id: string; email: string; name: string; avatarUrl?: string; createdAt: number };
+export type AuthUser = {
+  id: string;
+  email: string;
+  name: string;
+  avatarUrl?: string;
+  createdAt: number;
+  roles?: string[];
+  isAdmin?: boolean;
+};
 
 export type StorePlan = "starter" | "growth" | "plus" | "enterprise";
 export type StoreStatus = "active" | "paused" | "trial" | "suspended";

@@ -48,7 +48,9 @@ export class ERPNextService {
 
     const headers: Record<string, string> = {
       Accept: "application/json",
-      // ERPNext's HTTP server rejects the 100-continue handshake with 417.
+      Connection: "close",
+      // Explicitly blank the Expect header. Some Frappe/ERPNext servers reject
+      // the HTTP 100-continue handshake with 417 even when the value is empty.
       Expect: "",
     };
 
@@ -259,6 +261,8 @@ export class ERPNextService {
   ): Promise<{ data: T }> {
     const finalHeaders =
       this.getHeaders(headers, true);
+    finalHeaders.Expect = "";
+    finalHeaders.Connection = "close";
 
     const response = await this.client.post(
       `/api/resource/${encodeURIComponent(
@@ -286,6 +290,8 @@ export class ERPNextService {
   ): Promise<{ data: T }> {
     const finalHeaders =
       this.getHeaders(headers, true);
+    finalHeaders.Expect = "";
+    finalHeaders.Connection = "close";
 
     const response = await this.client.put(
       `/api/resource/${encodeURIComponent(
@@ -339,6 +345,8 @@ export class ERPNextService {
     if (httpMethod === "GET") {
       const finalHeaders =
         this.getHeaders(headers, false);
+      finalHeaders.Expect = "";
+      finalHeaders.Connection = "close";
 
       const response =
         await this.client.get(
@@ -354,6 +362,8 @@ export class ERPNextService {
 
     const finalHeaders =
       this.getHeaders(headers, true);
+    finalHeaders.Expect = "";
+    finalHeaders.Connection = "close";
 
     const response =
       await this.client.post(
@@ -397,6 +407,8 @@ export class ERPNextService {
         headers,
         isBodyMethod
       );
+    finalHeaders.Expect = "";
+    finalHeaders.Connection = "close";
 
     console.log(
       "=== ERPNextService.proxyRequest ===",
@@ -428,7 +440,7 @@ export class ERPNextService {
       await this.client.request({
         method: upperMethod,
         url: urlPath,
-        data,
+        ...(isBodyMethod ? { data } : {}),
         params: normalizedParams,
         headers: finalHeaders,
       });

@@ -230,6 +230,10 @@ export type Order = {
   trackingNumber?: string;
   carrier?: string;
   status: OrderStatus;
+  workflowState?: string;
+  frappeStatus?: string;
+  deliveryNote?: string;
+  salesInvoice?: string;
   paymentStatus: PaymentStatus;
   shippingStatus: ShippingStatus;
   fulfillment: "Unfulfilled" | "Fulfilled" | "Partially fulfilled";
